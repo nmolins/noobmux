@@ -1,5 +1,6 @@
 mod claude;
 mod config;
+mod download;
 mod hooks;
 mod meta;
 mod pty;
@@ -29,6 +30,7 @@ pub fn run() {
             tmux::list_tmux_sessions,
             tmux::tmux_kill_session,
             claude::list_claude_sessions,
+            download::download_to_downloads,
             config::load_config,
             config::save_config,
         ])

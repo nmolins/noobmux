@@ -1,31 +1,44 @@
 import { check } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
+import { invoke } from "@tauri-apps/api/core";
+import { openPath } from "@tauri-apps/plugin-opener";
 
 export interface UpdateInfo {
   version: string;
   notes?: string | null;
-  apply: () => Promise<void>;
+  /**
+   * Télécharge le .deb dans ~/Downloads puis ouvre le fichier via le
+   * gestionnaire système. L'utilisateur installe manuellement (sudo prompt
+   * via apt/Software Center). On évite ainsi le problème de droits root
+   * de l'updater Tauri natif.
+   */
+  downloadAndOpen: () => Promise<string>;
 }
 
 let bannerEl: HTMLDivElement | null = null;
 let checking = false;
 
-/**
- * Vérifie s'il y a une mise à jour. Retourne info + apply si oui, null sinon.
- * `silent` = ne pas alerter en cas d'erreur (utilisé au boot).
- */
 export async function checkForUpdate(opts?: { silent?: boolean }): Promise<UpdateInfo | null> {
   if (checking) return null;
   checking = true;
   try {
     const update = await check();
     if (!update) return null;
+
+    const rawJson = update.rawJson as any;
+    const url = rawJson?.platforms?.["linux-x86_64"]?.url as string | undefined;
+    if (!url) {
+      if (!opts?.silent) alert("Mise à jour disponible mais URL introuvable dans latest.json");
+      return null;
+    }
+    const filename = url.split("/").pop() ?? `noobmux_${update.version}_amd64.deb`;
+
     return {
       version: update.version,
       notes: update.body,
-      apply: async () => {
-        await update.downloadAndInstall();
-        await relaunch();
+      downloadAndOpen: async () => {
+        const path = await invoke<string>("download_to_downloads", { url, filename });
+        await openPath(path);
+        return path;
       },
     };
   } catch (e) {
@@ -47,7 +60,7 @@ export function showUpdateBanner(info: UpdateInfo) {
     <div class="update-banner-text">
       Mise à jour disponible <strong>v${info.version}</strong>
     </div>
-    <button class="update-banner-apply">Installer</button>
+    <button class="update-banner-apply">Télécharger</button>
     <button class="update-banner-dismiss" title="Plus tard">×</button>
   `;
   const applyBtn = bannerEl.querySelector(".update-banner-apply") as HTMLButtonElement;
@@ -56,11 +69,16 @@ export function showUpdateBanner(info: UpdateInfo) {
     applyBtn.disabled = true;
     applyBtn.textContent = "Téléchargement…";
     try {
-      await info.apply();
+      const path = await info.downloadAndOpen();
+      applyBtn.textContent = "Téléchargé";
+      const text = bannerEl?.querySelector(".update-banner-text") as HTMLDivElement;
+      if (text) {
+        text.innerHTML = `Téléchargé dans <code>${escapeHtml(path)}</code>. Installe via le gestionnaire de paquets pour appliquer.`;
+      }
     } catch (e) {
       applyBtn.disabled = false;
-      applyBtn.textContent = "Installer";
-      alert(`Échec de la mise à jour : ${e}`);
+      applyBtn.textContent = "Télécharger";
+      alert(`Échec du téléchargement : ${e}`);
     }
   });
   dismissBtn.addEventListener("click", () => {
@@ -68,4 +86,10 @@ export function showUpdateBanner(info: UpdateInfo) {
     bannerEl = null;
   });
   document.body.appendChild(bannerEl);
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!)
+  );
 }

@@ -118,10 +118,16 @@ fi
 rm -rf "$TMPDIR"
 
 # ── 5. Re-sign the (possibly swapped) .deb ──────────────────────────────────
+# tauri signer refuses --private-key when TAURI_SIGNING_PRIVATE_KEY_PATH env is
+# also set. Capture the key content in a local var, then clear the path env so
+# the CLI only sees our --private-key flag.
 echo "→ Signing $DEB_PATH"
+KEY_CONTENT="$TAURI_SIGNING_PRIVATE_KEY"
+KEY_PASSWORD="$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+unset TAURI_SIGNING_PRIVATE_KEY_PATH TAURI_SIGNING_PRIVATE_KEY
 pnpm tauri signer sign "$DEB_PATH" \
-    --private-key "$TAURI_SIGNING_PRIVATE_KEY" \
-    --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" >/dev/null
+    --private-key "$KEY_CONTENT" \
+    --password "$KEY_PASSWORD" >/dev/null
 if [[ ! -f "$SIG_PATH" ]]; then
     echo "ERROR: signature file not found at $SIG_PATH" >&2
     exit 1
@@ -131,7 +137,7 @@ SIGNATURE=$(cat "$SIG_PATH")
 # ── 6. Build latest.json ────────────────────────────────────────────────────
 DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 NOTES="${RELEASE_NOTES:-Release $TAG}"
-cat > /tmp/noobmux-latest.json <<EOF
+cat > /tmp/latest.json <<EOF
 {
   "version": "$VERSION",
   "notes": $(printf '%s' "$NOTES" | python3 -c "import json,sys;print(json.dumps(sys.stdin.read()))"),
@@ -144,12 +150,12 @@ cat > /tmp/noobmux-latest.json <<EOF
   }
 }
 EOF
-echo "→ Wrote /tmp/noobmux-latest.json"
+echo "→ Wrote /tmp/latest.json"
 
 # ── 7. Create / publish GitHub release ──────────────────────────────────────
 if gh release view "$TAG" >/dev/null 2>&1; then
     echo "→ Release $TAG already exists, uploading artifacts (overwrite)"
-    gh release upload "$TAG" "$DEB_PATH" /tmp/noobmux-latest.json --clobber
+    gh release upload "$TAG" "$DEB_PATH" /tmp/latest.json --clobber
 else
     DRAFT_FLAG=$([[ $PUBLISH -eq 0 ]] && echo "--draft" || echo "")
     gh release create "$TAG" \
@@ -157,7 +163,7 @@ else
         --notes "$NOTES" \
         $DRAFT_FLAG \
         "$DEB_PATH" \
-        /tmp/noobmux-latest.json
+        /tmp/latest.json
 fi
 
 if [[ $PUBLISH -eq 1 ]]; then
