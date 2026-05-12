@@ -8,6 +8,28 @@ use std::process::Command;
 pub struct SessionMetadata {
     pub git_branch: Option<String>,
     pub ports: Vec<u16>,
+    /** Nom (comm) du process foreground le plus profond. */
+    pub foreground_comm: Option<String>,
+}
+
+/// Renvoie le nom (comm) du process foreground d'un PTY donné.
+#[tauri::command]
+pub fn get_foreground_process(pid: u32) -> Result<Option<String>, String> {
+    Ok(deepest_child_comm(pid))
+}
+
+fn deepest_child_comm(root: u32) -> Option<String> {
+    let mut current = root;
+    for _ in 0..16 {
+        let children = child_pids(current);
+        if children.is_empty() {
+            break;
+        }
+        current = *children.last().unwrap();
+    }
+    std::fs::read_to_string(format!("/proc/{}/comm", current))
+        .ok()
+        .map(|s| s.trim().to_string())
 }
 
 #[tauri::command]
@@ -25,6 +47,7 @@ pub fn get_session_metadata(cwd: Option<String>, pid: Option<u32>) -> Result<Ses
 
     if let Some(p) = pid {
         out.ports = listening_ports_for_tree(p);
+        out.foreground_comm = deepest_child_comm(p);
     }
 
     Ok(out)

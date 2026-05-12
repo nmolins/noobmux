@@ -633,23 +633,41 @@ const sessionCwd = new Map<string, string>();
 interface SessionRuntimeMeta {
   gitBranch?: string;
   ports?: number[];
+  foregroundComm?: string;
 }
 const sessionMetaCache = new Map<string, SessionRuntimeMeta>();
+
+/** Process names considered as "shell" — no Shift+Enter trickery. */
+const SHELL_COMMS = new Set([
+  "bash", "zsh", "fish", "sh", "dash", "ksh", "tcsh", "csh", "elvish", "nu", "xonsh",
+]);
+
+export function shouldUseExtendedShiftEnter(comm: string | undefined): boolean {
+  if (!comm) return false;
+  return !SHELL_COMMS.has(comm.toLowerCase());
+}
 
 async function refreshSessionMetadata() {
   for (const s of sessions.values()) {
     try {
       const pid = await invoke<number | null>("get_pty_pid", { id: s.id }).catch(() => null);
       const cwd = sessionCwd.get(s.id) ?? null;
-      const meta = await invoke<{ git_branch: string | null; ports: number[] }>(
-        "get_session_metadata",
-        { cwd, pid }
-      );
+      const meta = await invoke<{
+        git_branch: string | null;
+        ports: number[];
+        foreground_comm: string | null;
+      }>("get_session_metadata", { cwd, pid });
       const prev = sessionMetaCache.get(s.id);
       const next: SessionRuntimeMeta = {
         gitBranch: meta.git_branch ?? undefined,
         ports: meta.ports,
+        foregroundComm: meta.foreground_comm ?? undefined,
       };
+      // Propage le mode foreground vers session.ts pour décider de Shift+Enter.
+      const setFg = (s.term as any).__noobmux_setForegroundComm as
+        | ((c: string | undefined) => void)
+        | undefined;
+      setFg?.(next.foregroundComm);
       if (
         prev?.gitBranch !== next.gitBranch ||
         prev?.ports?.join(",") !== next.ports?.join(",")
@@ -698,6 +716,7 @@ listen<{ id: string; data: string }>("pty:output", (e) => {
   if (!s) return;
   s.term.write(e.payload.data);
   s.lastOutputAt = Date.now();
+
 
   if (s.kind === "shell" && looksLikeClaude(e.payload.data)) {
     setKind(s.id, "agent");

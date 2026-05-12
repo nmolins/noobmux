@@ -28,6 +28,7 @@ pub fn run() {
             pty::kill_terminal,
             pty::get_pty_pid,
             meta::get_session_metadata,
+            meta::get_foreground_process,
             tmux::list_tmux_sessions,
             tmux::tmux_kill_session,
             claude::list_claude_sessions,

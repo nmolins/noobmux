@@ -50,6 +50,16 @@ export function createSession(opts: {
   // Voir tauri#3136, xterm.js#5348.
   let composingNonAscii = false;
   let firstInputConsumed = false;
+  // Comm du process foreground (mis à jour par le poll meta côté main.ts).
+  // Sert à décider quoi envoyer pour Shift+Enter : séquence étendue dans une
+  // TUI moderne, Enter classique dans un shell.
+  let foregroundComm: string | undefined = undefined;
+  const SHELL_COMMS = new Set([
+    "bash", "zsh", "fish", "sh", "dash", "ksh", "tcsh", "csh", "nu", "xonsh", "elvish",
+  ]);
+  (term as any).__noobmux_setForegroundComm = (c: string | undefined) => {
+    foregroundComm = c;
+  };
   term.attachCustomKeyEventHandler((e) => {
     if (e.type === "keydown" && e.keyCode === 229) {
       composingNonAscii = true;
@@ -60,9 +70,28 @@ export function createSession(opts: {
     // modernes comme Claude Code reconnaissent pour insérer une nouvelle ligne
     // dans le prompt au lieu d'envoyer. WebKit ne génère pas cet input par
     // défaut donc on le force.
-    if (e.type === "keydown" && e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
-      term.input("\x1b\r", true);
-      return false;
+    // Shift+Enter : si le foreground n'est pas un shell, on envoie la séquence
+    // CSI 27;2;13~ (modifyOtherKeys lvl 2) que Claude Code et autres TUI
+    // reconnaissent. Si c'est un shell ou inconnu, on laisse passer Enter
+    // normal pour ne pas polluer la ligne avec des caractères bruts.
+    if (
+      e.type === "keydown" &&
+      e.key === "Enter" &&
+      e.shiftKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.metaKey
+    ) {
+      if (foregroundComm && !SHELL_COMMS.has(foregroundComm.toLowerCase())) {
+        // kitty keyboard protocol: CSI <key>;<modifiers> u (13=Enter, 2=Shift).
+        // Claude Code et autres TUI modernes reconnaissent cette séquence.
+        // preventDefault pour éviter que WebKit envoie aussi un Enter brut.
+        term.input("\x1b[13;2u", true);
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+      // Sinon (shell), laisser Enter classique passer.
     }
     return true;
   });
