@@ -133,50 +133,54 @@ function renderSidebar() {
     ul.className = "session-list";
     ul.dataset.sectionId = sec.id;
 
-    // Drop wiring : tout le .section (header + ul) accepte le drop. Si la
-    // section est repliée et qu'on hover plus de 600ms, on la déplie.
+    // Drop wiring : tout le .section accepte le drop, sauf le builtin tmux.
+    // On utilise un compteur enter/leave pour éviter le flicker quand on
+    // traverse des éléments enfants (qui re-déclenchent enter/leave).
+    let dragDepth = 0;
     let expandTimer: number | null = null;
-    const onDragEnter = () => {
-      secEl.classList.add("drop-target");
-      // Si la session est attachée à la builtin tmux, on n'autorise pas.
-      if (sec.builtin === "tmux") return;
-      if (sec.collapsed && expandTimer === null) {
-        expandTimer = window.setTimeout(() => {
-          toggleSection(sec.id);
-          renderSidebar();
+    if (sec.builtin !== "tmux") {
+      secEl.addEventListener("dragover", (e) => {
+        if (!e.dataTransfer?.types.includes("text/noobmux-session")) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+      });
+      secEl.addEventListener("dragenter", (e) => {
+        if (!e.dataTransfer?.types.includes("text/noobmux-session")) return;
+        e.preventDefault();
+        dragDepth++;
+        secEl.classList.add("drop-target");
+        if (sec.collapsed && expandTimer === null) {
+          expandTimer = window.setTimeout(() => {
+            toggleSection(sec.id);
+            renderSidebar();
+            expandTimer = null;
+          }, 500);
+        }
+      });
+      secEl.addEventListener("dragleave", () => {
+        dragDepth--;
+        if (dragDepth <= 0) {
+          dragDepth = 0;
+          secEl.classList.remove("drop-target");
+          if (expandTimer !== null) {
+            clearTimeout(expandTimer);
+            expandTimer = null;
+          }
+        }
+      });
+      secEl.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dragDepth = 0;
+        secEl.classList.remove("drop-target");
+        if (expandTimer !== null) {
+          clearTimeout(expandTimer);
           expandTimer = null;
-        }, 600);
-      }
-    };
-    const onDragLeave = (e: DragEvent) => {
-      // Ne lever le flag que si on quitte vraiment le block (pas un sub-element).
-      const related = e.relatedTarget as Node | null;
-      if (related && secEl.contains(related)) return;
-      secEl.classList.remove("drop-target");
-      if (expandTimer !== null) {
-        clearTimeout(expandTimer);
-        expandTimer = null;
-      }
-    };
-    const onDrop = (e: DragEvent) => {
-      e.preventDefault();
-      secEl.classList.remove("drop-target");
-      if (expandTimer !== null) {
-        clearTimeout(expandTimer);
-        expandTimer = null;
-      }
-      if (sec.builtin === "tmux") return;
-      const sid = e.dataTransfer?.getData("text/noobmux-session");
-      if (!sid) return;
-      moveSessionToSection(sid, sec.id);
-    };
-    secEl.addEventListener("dragover", (e) => {
-      if (sec.builtin === "tmux") return;
-      e.preventDefault();
-    });
-    secEl.addEventListener("dragenter", onDragEnter);
-    secEl.addEventListener("dragleave", onDragLeave);
-    secEl.addEventListener("drop", onDrop);
+        }
+        const sid = e.dataTransfer?.getData("text/noobmux-session");
+        if (!sid) return;
+        moveSessionToSection(sid, sec.id);
+      });
+    }
 
     if (sec.builtin === "tmux") {
       // Built-in: liste live des sessions tmux non attachées (et pas déjà ouvertes ici).
