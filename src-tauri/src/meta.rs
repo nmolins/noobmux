@@ -14,7 +14,12 @@ pub struct SessionMetadata {
 pub fn get_session_metadata(cwd: Option<String>, pid: Option<u32>) -> Result<SessionMetadata, String> {
     let mut out = SessionMetadata::default();
 
-    if let Some(d) = cwd.as_ref() {
+    // Préférer le cwd réel du process (suit `cd` dans le shell). Fallback sur
+    // le cwd fourni au spawn si le process n'expose pas /proc/<pid>/cwd
+    // (process mort, deepest child non lisible).
+    let resolved_cwd = pid.and_then(|p| deepest_child_cwd(p)).or(cwd);
+
+    if let Some(d) = resolved_cwd.as_ref() {
         out.git_branch = git_branch(d);
     }
 
@@ -23,6 +28,27 @@ pub fn get_session_metadata(cwd: Option<String>, pid: Option<u32>) -> Result<Ses
     }
 
     Ok(out)
+}
+
+/// Remonte la chaîne d'enfants depuis `root` pour trouver le process le plus
+/// profond et lit son cwd via /proc/<pid>/cwd. Si l'utilisateur fait `cd` dans
+/// le shell, c'est ce cwd-là qui reflète vraiment où il est.
+fn deepest_child_cwd(root: u32) -> Option<String> {
+    let mut current = root;
+    // Descendre dans la chaîne d'enfants (linéaire si pas de fork-bomb).
+    for _ in 0..16 {
+        let children = child_pids(current);
+        if children.is_empty() {
+            break;
+        }
+        // En cas de plusieurs enfants, prendre le plus récent (probablement le
+        // process foreground).
+        current = *children.last().unwrap();
+    }
+    let link = format!("/proc/{}/cwd", current);
+    std::fs::read_link(&link)
+        .ok()
+        .and_then(|p| p.to_str().map(String::from))
 }
 
 fn git_branch(cwd: &str) -> Option<String> {
