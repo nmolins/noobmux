@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""
+Claude Code hook → noobmux bridge.
+
+Reads a hook JSON payload from stdin (Claude Code hook protocol),
+forwards it to the local noobmux Unix socket so the GUI can update
+the session status indicator.
+
+Wire it up in ~/.claude/settings.json under the Stop / Notification /
+UserPromptSubmit hook events. Example:
+
+  {
+    "hooks": {
+      "Stop": [{ "hooks": [{ "type": "command", "command": "/home/nico/Dev/noobmux/scripts/noobmux-hook Stop" }] }],
+      "Notification": [{ "hooks": [{ "type": "command", "command": "/home/nico/Dev/noobmux/scripts/noobmux-hook Notification" }] }],
+      "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "/home/nico/Dev/noobmux/scripts/noobmux-hook UserPromptSubmit" }] }]
+    }
+  }
+"""
+import json
+import os
+import socket
+import sys
+
+
+def socket_path() -> str:
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime:
+        return os.path.join(runtime, "noobmux.sock")
+    cache = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    return os.path.join(cache, "noobmux.sock")
+
+
+def main() -> int:
+    event = sys.argv[1] if len(sys.argv) > 1 else "Unknown"
+    try:
+        payload = json.load(sys.stdin)
+    except Exception:
+        payload = {}
+
+    message = {
+        "session_id": os.environ.get("NOOBMUX_SESSION_ID"),
+        "event": event,
+        "payload": payload,
+    }
+
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(0.5)
+        s.connect(socket_path())
+        s.sendall((json.dumps(message) + "\n").encode("utf-8"))
+        s.close()
+    except Exception:
+        # noobmux not running — silently no-op so the hook never blocks Claude Code.
+        pass
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

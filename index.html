@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <link rel="stylesheet" href="/node_modules/@xterm/xterm/css/xterm.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>noobmux</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <div class="sidebar-header">
+          <span class="brand">noobmux</span>
+          <span class="version" id="app-version"></span>
+          <button id="open-settings" class="header-icon-btn" title="Paramètres">⚙</button>
+        </div>
+        <div id="section-list"></div>
+        <div class="sidebar-actions">
+          <div class="sidebar-actions-row">
+            <div class="split-btn">
+              <button id="new-terminal" class="primary" title="Shift+click pour choisir un dossier">+ Terminal</button>
+              <button id="new-terminal-menu" class="split-caret primary" title="Plus d'options">▾</button>
+            </div>
+            <button id="new-section" class="icon-btn" title="Nouvelle section">+ §</button>
+          </div>
+        </div>
+      </aside>
+      <div id="sidebar-resizer" title="Glisser pour redimensionner"></div>
+      <main id="terminals"></main>
+    </div>
+
+    <div id="context-menu" class="context-menu hidden"></div>
+  </body>
+</html>

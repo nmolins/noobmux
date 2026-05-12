@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Style ghostty : carré arrondi très simple, fond uni, un seul focal point -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f2128"/>
+      <stop offset="1" stop-color="#0f1014"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Squircle (rayon ~22% comme iOS/ghostty) -->
+  <rect x="0" y="0" width="1024" height="1024" rx="230" fill="url(#bg)"/>
+
+  <!-- Légère lumière en haut pour donner du volume -->
+  <rect x="0" y="0" width="1024" height="1024" rx="230"
+        fill="none" stroke="#ffffff" stroke-opacity="0.06" stroke-width="2"/>
+
+  <!-- Grand N central -->
+  <text x="512" y="600"
+        text-anchor="middle"
+        font-family="ui-monospace, 'JetBrains Mono', 'Fira Code', monospace"
+        font-weight="500"
+        font-size="560"
+        fill="#e8ecf5"
+        letter-spacing="-20">N</text>
+
+  <!-- Prompt > en bas à droite -->
+  <text x="820" y="920"
+        text-anchor="end"
+        font-family="ui-monospace, 'JetBrains Mono', monospace"
+        font-weight="500"
+        font-size="190"
+        fill="#7aa2f7"
+        letter-spacing="-4">&gt;_</text>
+</svg>

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Variante A : pile de terminaux superposés -->
+  <defs>
+    <linearGradient id="bg-a" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a1b26"/>
+      <stop offset="1" stop-color="#13141a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="220" fill="url(#bg-a)"/>
+  <!-- Trois cartes de terminal empilées -->
+  <g>
+    <!-- Carte du fond -->
+    <rect x="180" y="200" width="640" height="420" rx="44" fill="#16161e" stroke="#3d59a1" stroke-width="6"/>
+    <!-- Carte du milieu -->
+    <rect x="220" y="290" width="640" height="420" rx="44" fill="#1f2231" stroke="#7aa2f7" stroke-width="6"/>
+    <!-- Carte de devant -->
+    <rect x="260" y="380" width="640" height="420" rx="44" fill="#2a2f47" stroke="#7aa2f7" stroke-width="8"/>
+    <!-- Dots feu tricolore -->
+    <circle cx="320" cy="450" r="20" fill="#f7768e"/>
+    <circle cx="385" cy="450" r="20" fill="#e0af68"/>
+    <circle cx="450" cy="450" r="20" fill="#9ece6a"/>
+    <!-- Prompt -->
+    <text x="320" y="630" font-family="ui-monospace, monospace" font-size="100" font-weight="700" fill="#c0caf5">&gt;_</text>
+  </g>
+</svg>

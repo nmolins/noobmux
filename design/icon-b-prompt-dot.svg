@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Variante B : un grand prompt avec un dot vert (statut AI) -->
+  <defs>
+    <linearGradient id="bg-b" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1a1b26"/>
+      <stop offset="1" stop-color="#24283b"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="220" fill="url(#bg-b)"/>
+
+  <!-- Chevron du prompt en gros -->
+  <g transform="translate(220 360)">
+    <path d="M 0 0 L 220 152 L 0 304" stroke="#7aa2f7" stroke-width="56" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+
+  <!-- Curseur (rectangle plein) -->
+  <rect x="540" y="430" width="160" height="160" rx="24" fill="#c0caf5"/>
+
+  <!-- Dot de statut "actif" en haut à droite -->
+  <circle cx="800" cy="240" r="60" fill="#9ece6a"/>
+  <circle cx="800" cy="240" r="60" fill="none" stroke="#9ece6a" stroke-width="20" opacity="0.4"/>
+</svg>

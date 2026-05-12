@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Variante C : grille 2x2 (multiplexer) avec un pane mis en valeur -->
+  <defs>
+    <linearGradient id="bg-c" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a1b26"/>
+      <stop offset="1" stop-color="#13141a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="220" fill="url(#bg-c)"/>
+
+  <!-- Cadre extérieur -->
+  <rect x="160" y="160" width="704" height="704" rx="64" fill="none" stroke="#3d59a1" stroke-width="8"/>
+
+  <!-- Quatre panes -->
+  <!-- top-left -->
+  <rect x="200" y="200" width="312" height="312" rx="28" fill="#16161e"/>
+  <circle cx="248" cy="248" r="14" fill="#9ece6a"/>
+  <rect x="240" y="290" width="170" height="14" rx="7" fill="#565f89"/>
+  <rect x="240" y="318" width="120" height="14" rx="7" fill="#565f89"/>
+  <rect x="240" y="346" width="200" height="14" rx="7" fill="#565f89"/>
+
+  <!-- top-right (mis en valeur, terminal AI actif) -->
+  <rect x="512" y="200" width="312" height="312" rx="28" fill="#1f2231" stroke="#bb9af7" stroke-width="6"/>
+  <circle cx="560" cy="248" r="14" fill="#bb9af7"/>
+  <text x="540" y="430" font-family="ui-monospace, monospace" font-size="180" font-weight="700" fill="#bb9af7">AI</text>
+
+  <!-- bottom-left -->
+  <rect x="200" y="512" width="312" height="312" rx="28" fill="#16161e"/>
+  <circle cx="248" cy="560" r="14" fill="#e0af68"/>
+  <rect x="240" y="602" width="180" height="14" rx="7" fill="#565f89"/>
+  <rect x="240" y="630" width="220" height="14" rx="7" fill="#565f89"/>
+
+  <!-- bottom-right -->
+  <rect x="512" y="512" width="312" height="312" rx="28" fill="#16161e"/>
+  <circle cx="560" cy="560" r="14" fill="#565f89"/>
+  <text x="595" y="730" font-family="ui-monospace, monospace" font-size="120" font-weight="700" fill="#c0caf5">&gt;_</text>
+</svg>
