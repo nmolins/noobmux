@@ -31,6 +31,15 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ5OTBBOTQ2ODRFMzEzOTcKUldTWEUrT0VScW1RU1ZDVHo4ZDJwcCs2ZE9ua1R2UUFTU25mWjJDcHd6cWlBN2c0STE0OUlTMEcK",
+      "endpoints": [
+        "https://github.com/nmolins/noobmux/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

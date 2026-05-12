@@ -1,6 +1,9 @@
 import { getConfig, updateQuickCommands, updateUI } from "./store";
 import { THEMES, applyThemeToRoot, getTheme } from "./themes";
 import type { QuickCommand } from "./commands";
+import { checkForUpdate, showUpdateBanner } from "./updater";
+
+declare const __APP_VERSION__: string;
 
 export interface SettingsHooks {
   onChange: () => void;
@@ -38,6 +41,7 @@ export function openSettingsModal(hooks: SettingsHooks) {
   const tabDefs = [
     { id: "appearance", label: "Apparence" },
     { id: "commands", label: "Commandes rapides" },
+    { id: "about", label: "À propos" },
   ];
   const panes: Record<string, HTMLElement> = {};
   for (const t of tabDefs) {
@@ -75,6 +79,9 @@ export function openSettingsModal(hooks: SettingsHooks) {
   buildCommandsPane(panes["commands"], working, () => {
     updateQuickCommands(working.quickCommands);
   });
+
+  // ── About pane ────────────────────────────────────────────────────────
+  buildAboutPane(panes["about"]);
 
   // ── Footer ────────────────────────────────────────────────────────────
   const footer = el("div", "settings-footer");
@@ -266,6 +273,47 @@ function buildCommandsPane(
     render();
   });
   pane.appendChild(add);
+}
+
+function buildAboutPane(pane: HTMLElement) {
+  pane.appendChild(text("h3", "Version"));
+  const v = el("div", "settings-row");
+  v.appendChild(text("label", "noobmux"));
+  const vTag = el("span", "settings-row-value");
+  vTag.textContent = `v${__APP_VERSION__}`;
+  v.appendChild(vTag);
+  pane.appendChild(v);
+
+  pane.appendChild(text("h3", "Mises à jour"));
+  const status = el("div", "settings-hint");
+  status.textContent = "noobmux vérifie automatiquement les mises à jour au démarrage.";
+  pane.appendChild(status);
+
+  const btn = el("button", "cmd-add") as HTMLButtonElement;
+  btn.textContent = "Vérifier maintenant";
+  btn.style.marginTop = "8px";
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    btn.textContent = "Vérification…";
+    const update = await checkForUpdate({ silent: false });
+    btn.disabled = false;
+    btn.textContent = "Vérifier maintenant";
+    if (update) {
+      status.textContent = `Version ${update.version} disponible.`;
+      showUpdateBanner(update);
+    } else {
+      status.textContent = "Vous êtes à jour.";
+    }
+  });
+  pane.appendChild(btn);
+
+  pane.appendChild(text("h3", "Liens"));
+  const repoLink = el("a");
+  (repoLink as HTMLAnchorElement).href = "https://github.com/nmolins/noobmux";
+  (repoLink as HTMLAnchorElement).target = "_blank";
+  repoLink.textContent = "github.com/nmolins/noobmux";
+  repoLink.style.color = "var(--accent)";
+  pane.appendChild(repoLink);
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────

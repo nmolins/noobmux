@@ -706,6 +706,45 @@ html, body {
   justify-content: flex-end;
 }
 
+.update-banner {
+  position: fixed;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 8px 16px;
+  background: var(--bg-elev);
+  border: 1px solid var(--accent-dim);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  z-index: 1800;
+  font-size: 12px;
+}
+.update-banner-text { color: var(--fg); }
+.update-banner-text strong { color: var(--accent); }
+.update-banner-apply {
+  padding: 5px 12px;
+  background: var(--accent-dim);
+  color: #fff;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.update-banner-apply:hover { background: var(--accent); color: var(--bg); }
+.update-banner-apply:disabled { opacity: 0.6; cursor: not-allowed; }
+.update-banner-dismiss {
+  background: transparent;
+  border: 0;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+}
+.update-banner-dismiss:hover { color: var(--fg); }
+
 .prompt-overlay {
   position: fixed;
   inset: 0;

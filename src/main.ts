@@ -34,6 +34,7 @@ import {
 import { promptText } from "./prompt";
 import { openSettingsModal } from "./settingsModal";
 import { applyThemeToRoot, getTheme } from "./themes";
+import { checkForUpdate, showUpdateBanner } from "./updater";
 
 const LAST_DIR_KEY = "noobmux:lastDir";
 
@@ -903,6 +904,11 @@ function setupSidebarResizer() {
   setInterval(pollTmux, 3000);
   refreshSessionMetadata();
   setInterval(refreshSessionMetadata, 4000);
+  // Auto-check updates au boot (silencieux). 3s de délai pour ne pas bloquer.
+  setTimeout(async () => {
+    const update = await checkForUpdate({ silent: true });
+    if (update) showUpdateBanner(update);
+  }, 3000);
   // Persistance d'ordre périodique légère.
   setInterval(persistOrder, 2000);
   // Sauver à la fermeture.
