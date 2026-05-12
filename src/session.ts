@@ -43,20 +43,17 @@ export function createSession(opts: {
   // Bug WebKit2GTK + AZERTY : pour une touche directe non-ASCII (é, à, è, ç…),
   // WebKit envoie keydown { keyCode:229 } (sentinel IME) puis plusieurs events
   // `input` sur le textarea xterm → caractère envoyé 2-3× au PTY.
-  // Workaround : bloquer le keydown 229, étouffer les events `input` du
-  // textarea, et émettre une seule fois au keyup avec e.key résolu.
+  // Workaround : bloquer le keydown 229 dans xterm, capturer le 1er event
+  // `input` sur le textarea (qui contient le caractère résolu), l'émettre
+  // immédiatement, et bloquer les events `input` suivants jusqu'au prochain
+  // keydown. Émettre dès le 1er input → pas de latence vs taper au keyup.
   // Voir tauri#3136, xterm.js#5348.
-  let suppressNextInput = false;
+  let composingNonAscii = false;
+  let firstInputConsumed = false;
   term.attachCustomKeyEventHandler((e) => {
     if (e.type === "keydown" && e.keyCode === 229) {
-      suppressNextInput = true;
-      return false;
-    }
-    if (e.type === "keyup" && suppressNextInput) {
-      suppressNextInput = false;
-      if (e.key && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        term.input(e.key, true);
-      }
+      composingNonAscii = true;
+      firstInputConsumed = false;
       return false;
     }
     // Shift+Enter : émet une séquence "newline littéral" (\x1b\r) que les TUI
@@ -77,18 +74,24 @@ export function createSession(opts: {
 
   term.open(pane);
 
-  // Étouffer les events 'input' du textarea xterm pendant la phase composée,
-  // c'est là que vient le triplement.
+  // Pendant la phase de composition non-ASCII, le textarea reçoit 2-3 events
+  // `input` avec le même caractère. On capte le 1er, on l'émet directement
+  // au PTY, et on bloque la propagation des suivants pour que xterm ne
+  // double pas. Le flag se reset au prochain keydown.
   requestAnimationFrame(() => {
     const ta = pane.querySelector("textarea.xterm-helper-textarea") as HTMLTextAreaElement | null;
     if (!ta) return;
     ta.addEventListener(
       "input",
       (ev) => {
-        if (suppressNextInput) {
-          ev.stopImmediatePropagation();
-          ta.value = "";
+        if (!composingNonAscii) return;
+        const inputEv = ev as InputEvent;
+        if (!firstInputConsumed && inputEv.data) {
+          firstInputConsumed = true;
+          term.input(inputEv.data, true);
         }
+        ev.stopImmediatePropagation();
+        ta.value = "";
       },
       true
     );
