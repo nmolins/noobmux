@@ -93,6 +93,11 @@ export function detectClaudeStatusFromScreen(screen: string): ClaudeStatus | nul
   const hasIdle = IDLE_PATTERNS.some((re) => re.test(screen));
   if (hasWaiting && !hasIdle) return "waiting";
   if (hasIdle) return "idle";
+  // Footer Claude visible mais ni running ni waiting : on est idle.
+  // Évite que "waiting" reste figé après qu'un prompt OSC ait été dismissé.
+  if (/\? for shortcuts/i.test(screen) || /\b(Opus|Sonnet|Haiku)\s+\d/.test(screen)) {
+    return "idle";
+  }
   return null;
 }
 

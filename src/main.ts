@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { v4 as uuid } from "uuid";
 
@@ -381,6 +382,7 @@ function beginRename(li: HTMLLIElement, s: Session) {
     nameEl.textContent = s.name;
     renamingId = null;
     renderSidebar();
+    if (s.id === activeId) updateWindowTitle();
   };
   nameEl.addEventListener("blur", () => commit(false), { once: true });
   nameEl.addEventListener("keydown", (e) => {
@@ -446,10 +448,17 @@ function activate(id: string) {
     other.pane.classList.toggle("active", other.id === id);
   }
   renderSidebar();
+  updateWindowTitle();
   requestAnimationFrame(() => {
     s.fit.fit();
     s.term.focus();
   });
+}
+
+function updateWindowTitle() {
+  const s = activeId ? sessions.get(activeId) : null;
+  const title = s ? `${s.name} — noobmux` : "noobmux";
+  getCurrentWindow().setTitle(title).catch(() => {});
 }
 
 function setStatus(id: string, status: SessionStatus) {
@@ -604,6 +613,7 @@ async function closeSession(id: string, opts?: { killTmux?: boolean }) {
   if (activeId === id) {
     activeId = sessions.keys().next().value ?? null;
     if (activeId) activate(activeId);
+    else updateWindowTitle();
   }
   renderSidebar();
   renderEmptyState();
@@ -755,6 +765,20 @@ listen<{ id: string; data: string }>("pty:output", (e) => {
     setStatus(s.id, "waiting");
   }
 });
+
+// Re-scan périodique : l'écran d'une session agent peut évoluer (l'utilisateur
+// dismiss un prompt, Claude finit silencieusement…) sans qu'aucun pty:output
+// ne soit reçu. Sans ce poll, le statut peut rester figé en "waiting".
+setInterval(() => {
+  for (const s of sessions.values()) {
+    if (s.kind !== "agent") continue;
+    const screen = readScreen(s.term);
+    const claudeStatus = detectClaudeStatusFromScreen(screen);
+    if (claudeStatus && claudeStatus !== s.status) {
+      setStatus(s.id, claudeStatus);
+    }
+  }
+}, 1000);
 
 listen<{ id: string; code: number | null }>("pty:exit", (e) => {
   const s = sessions.get(e.payload.id);

@@ -287,14 +287,31 @@ html, body {
   border-radius: 50%;
   background: var(--status-idle);
   flex-shrink: 0;
+  position: relative;
 }
-.status-dot.running { background: var(--status-running); }
+.status-dot.running {
+  background: var(--status-running);
+}
+.status-dot.running::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 1.5px solid transparent;
+  border-top-color: var(--status-running);
+  border-right-color: var(--status-running);
+  animation: spin 0.9s linear infinite;
+}
 .status-dot.waiting { background: var(--status-waiting); animation: pulse 1.4s infinite; }
 .status-dot.error { background: var(--status-error); }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .session-name {
