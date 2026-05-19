@@ -1,4 +1,5 @@
 mod claude;
+mod claude_hooks;
 mod config;
 mod download;
 mod hooks;
@@ -7,6 +8,36 @@ mod pty;
 mod tmux;
 
 use pty::PtyManager;
+
+/// Sous-commande `noobmux --hook <event>` : lit un payload JSON sur stdin
+/// (protocole hooks de Claude Code), l'envoie sur la socket Unix noobmux pour
+/// que la GUI puisse mettre à jour le statut de la session. Non-bloquant
+/// (silencieusement no-op si noobmux n'est pas lancé).
+pub fn hook_cli(event: &str) -> i32 {
+    use std::io::Read;
+    let mut buf = String::new();
+    let _ = std::io::stdin().read_to_string(&mut buf);
+    let payload: serde_json::Value = serde_json::from_str(&buf).unwrap_or(serde_json::Value::Null);
+    let session_id = std::env::var("NOOBMUX_SESSION_ID").ok();
+    let message = serde_json::json!({
+        "session_id": session_id,
+        "event": event,
+        "payload": payload,
+    });
+    let _ = send_to_socket(&message.to_string());
+    0
+}
+
+fn send_to_socket(msg: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+    let path = hooks::socket_path();
+    let mut stream = UnixStream::connect(&path)?;
+    stream.set_write_timeout(Some(std::time::Duration::from_millis(500)))?;
+    stream.write_all(msg.as_bytes())?;
+    stream.write_all(b"\n")?;
+    Ok(())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -35,6 +66,8 @@ pub fn run() {
             download::download_to_downloads,
             config::load_config,
             config::save_config,
+            claude_hooks::check_claude_hooks,
+            claude_hooks::install_claude_hooks,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

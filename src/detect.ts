@@ -35,9 +35,13 @@ const RUNNING_PATTERNS: RegExp[] = [
   /esc to interrupt/i,
   /\btokens?\b.*\bsec/i,
   /\(esc\)/i,
-  // Forks/fast-mode : verbes de spinner avec gérondif
-  /\b(Thinking|Pondering|Cogitating|Brewing|Mulling|Cooking|Crafting|Crunching|Forging|Marinating|Noodling|Percolating|Puttering|Ruminating|Simmering|Spinning|Stirring|Synthesizing|Wandering|Whirling|Working|Processing|Generating|Computing|Loading|Sauteing|Whisking|Baking|Boiling)…/,
-  // "Thinking: medium" + "auto mode on" indique du travail actif si combinés au verbe ci-dessus
+  // Forks/fast-mode : n'importe quel verbe en -ing capitalisé suivi de … (ellipsis
+  // Unicode … ou trois points ASCII). Couvre Thinking, Philosophising,
+  // Cogitating, Synthesizing et tout futur verbe ajouté par les forks sans
+  // qu'on ait à maintenir une liste.
+  /\b[A-Z][a-z]+ing(?:…|\.{3})/,
+  // Spinner avec compteur de tokens : "(21s · ↑ 754 tokens)"
+  /\(\d+s\s*[·•].*tokens?\)/i,
 ];
 
 const WAITING_PATTERNS: RegExp[] = [

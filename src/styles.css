@@ -9,6 +9,7 @@
   --status-idle: #6b7394;
   --status-running: #9ece6a;
   --status-waiting: #e0af68;
+  --status-done: #7aa2f7;
   --status-error: #f7768e;
   --border: #353a52;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -292,7 +293,10 @@ html, body {
 .status-dot.running {
   background: var(--status-running);
 }
-.status-dot.running::before {
+/* Spinner ring uniquement pour les sessions agent (Claude). Sur un shell,
+   "running" reflète juste qu'une commande a produit de l'output, c'est trop
+   bruyant pour mériter un spinner. */
+.session-item.kind-agent .status-dot.running::before {
   content: "";
   position: absolute;
   inset: -3px;
@@ -303,6 +307,7 @@ html, body {
   animation: spin 0.9s linear infinite;
 }
 .status-dot.waiting { background: var(--status-waiting); animation: pulse 1.4s infinite; }
+.status-dot.done { background: var(--status-done); }
 .status-dot.error { background: var(--status-error); }
 
 @keyframes pulse {

@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { getConfig, updateQuickCommands, updateUI } from "./store";
 import { THEMES, applyThemeToRoot, getTheme } from "./themes";
 import type { QuickCommand } from "./commands";
@@ -41,6 +42,7 @@ export function openSettingsModal(hooks: SettingsHooks) {
   const tabDefs = [
     { id: "appearance", label: "Apparence" },
     { id: "commands", label: "Commandes rapides" },
+    { id: "claude", label: "Claude Code" },
     { id: "about", label: "À propos" },
   ];
   const panes: Record<string, HTMLElement> = {};
@@ -79,6 +81,9 @@ export function openSettingsModal(hooks: SettingsHooks) {
   buildCommandsPane(panes["commands"], working, () => {
     updateQuickCommands(working.quickCommands);
   });
+
+  // ── Claude Code pane ──────────────────────────────────────────────────
+  buildClaudePane(panes["claude"]);
 
   // ── About pane ────────────────────────────────────────────────────────
   buildAboutPane(panes["about"]);
@@ -273,6 +278,83 @@ function buildCommandsPane(
     render();
   });
   pane.appendChild(add);
+}
+
+interface HookStatus {
+  installed: boolean;
+  settings_path: string;
+  current_exe: string;
+}
+
+function buildClaudePane(pane: HTMLElement) {
+  pane.appendChild(text("h3", "Intégration Claude Code"));
+  const intro = el("div", "settings-hint");
+  intro.textContent =
+    "noobmux peut s'intégrer aux hooks Claude Code pour détecter de façon fiable quand une session est active, idle, ou attend une action de ta part. " +
+    "L'installation ajoute des entrées dans ~/.claude/settings.json — tes hooks existants sont préservés.";
+  pane.appendChild(intro);
+
+  const statusRow = el("div", "settings-row");
+  statusRow.style.marginTop = "12px";
+  statusRow.appendChild(text("label", "Statut"));
+  const statusValue = el("span", "settings-row-value");
+  statusValue.textContent = "Vérification…";
+  statusRow.appendChild(statusValue);
+  pane.appendChild(statusRow);
+
+  const pathRow = el("div", "settings-hint");
+  pathRow.style.marginTop = "4px";
+  pane.appendChild(pathRow);
+
+  const btn = el("button", "cmd-add") as HTMLButtonElement;
+  btn.style.marginTop = "8px";
+  btn.disabled = true;
+  btn.textContent = "Installer les hooks";
+  pane.appendChild(btn);
+
+  const feedback = el("div", "settings-hint");
+  feedback.style.marginTop = "8px";
+  pane.appendChild(feedback);
+
+  const refresh = async () => {
+    try {
+      const status = await invoke<HookStatus>("check_claude_hooks");
+      applyStatus(status);
+    } catch (err) {
+      statusValue.textContent = "Erreur";
+      feedback.textContent = String(err);
+    }
+  };
+
+  const applyStatus = (status: HookStatus) => {
+    if (status.installed) {
+      statusValue.textContent = "Installés ✓";
+      btn.textContent = "Réinstaller";
+    } else {
+      statusValue.textContent = "Non installés";
+      btn.textContent = "Installer les hooks";
+    }
+    pathRow.textContent = `Fichier : ${status.settings_path}`;
+    btn.disabled = false;
+  };
+
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    btn.textContent = "Installation…";
+    feedback.textContent = "";
+    try {
+      const status = await invoke<HookStatus>("install_claude_hooks");
+      applyStatus(status);
+      feedback.textContent =
+        "Hooks installés. Les sessions Claude lancées maintenant utiliseront la détection précise.";
+    } catch (err) {
+      feedback.textContent = `Erreur : ${err}`;
+      btn.disabled = false;
+      btn.textContent = "Installer les hooks";
+    }
+  });
+
+  refresh();
 }
 
 function buildAboutPane(pane: HTMLElement) {

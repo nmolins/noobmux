@@ -216,6 +216,7 @@ function buildSessionItem(s: Session): HTMLLIElement {
   const li = document.createElement("li");
   li.className =
     "session-item" +
+    (s.kind === "agent" ? " kind-agent" : " kind-shell") +
     (s.id === activeId ? " active" : "") +
     (s.status === "waiting" ? " notif-waiting" : "");
   li.dataset.sessionId = s.id;
@@ -322,6 +323,8 @@ function updateSidebarInPlace() {
     ) as HTMLLIElement | null;
     if (!li) continue;
     li.classList.toggle("active", s.id === activeId);
+    li.classList.toggle("kind-agent", s.kind === "agent");
+    li.classList.toggle("kind-shell", s.kind !== "agent");
     li.classList.toggle("notif-waiting", s.status === "waiting");
     const dot = li.querySelector(".status-dot") as HTMLSpanElement;
     dot.className = `status-dot ${s.status}`;
@@ -458,7 +461,13 @@ function activate(id: string) {
 function updateWindowTitle() {
   const s = activeId ? sessions.get(activeId) : null;
   const title = s ? `${s.name} — noobmux` : "noobmux";
-  getCurrentWindow().setTitle(title).catch(() => {});
+  // Note : sur GNOME/Wayland avec CSD, la barre de titre affiche `productName`
+  // (« noobmux ») au lieu de cette chaîne. setTitle change quand même
+  // _NET_WM_NAME donc des outils externes (wmctrl, alt-tab certains WM) voient
+  // bien le nom de session.
+  getCurrentWindow()
+    .setTitle(title)
+    .catch(() => {});
 }
 
 function setStatus(id: string, status: SessionStatus) {
@@ -606,6 +615,7 @@ async function closeSession(id: string, opts?: { killTmux?: boolean }) {
   s.pane.remove();
   if (tmuxName) attachedTmux.delete(tmuxName);
   lastScreenCheck.delete(id);
+  hookPiloted.delete(id);
   sessionCwd.delete(id);
   sessionMetaCache.delete(id);
   removeSessionMeta(s.name);
@@ -706,11 +716,14 @@ async function pollTmux() {
 
 // ─── Wiring events ───────────────────────────────────────────────────────────
 
-/** Lit le contenu actuel de l'écran xterm sous forme de string. */
+/** Lit l'écran live (les `rows` dernières lignes du buffer) en ignorant le
+ *  scroll de l'utilisateur. Sans ça, scroller vers le haut sortirait le
+ *  footer Claude du viewport et figerait la détection de statut. */
 function readScreen(term: import("@xterm/xterm").Terminal): string {
   const buf = term.buffer.active;
   const lines: string[] = [];
-  const start = buf.viewportY;
+  // baseY = première ligne de l'écran live (peu importe où l'user a scrollé).
+  const start = buf.baseY;
   const end = start + term.rows;
   for (let y = start; y < end; y++) {
     const line = buf.getLine(y);
@@ -720,6 +733,12 @@ function readScreen(term: import("@xterm/xterm").Terminal): string {
 }
 
 const lastScreenCheck = new Map<string, number>();
+
+// Sessions qui ont déjà reçu au moins un hook : on considère les hooks comme
+// source de vérité unique et on désactive le parsing visuel pour éviter les
+// yoyo (le footer Claude post-turn matche encore des patterns running et
+// déclenche des transitions fantômes après Stop).
+const hookPiloted = new Set<string>();
 
 listen<{ id: string; data: string }>("pty:output", (e) => {
   const s = sessions.get(e.payload.id);
@@ -739,11 +758,12 @@ listen<{ id: string; data: string }>("pty:output", (e) => {
     if (now - last > 80) {
       lastScreenCheck.set(s.id, now);
       requestAnimationFrame(() => {
+        // Hooks pilotent : le parsing visuel ne fait rien.
+        if (hookPiloted.has(s.id)) return;
         const screen = readScreen(s.term);
         const claudeStatus = detectClaudeStatusFromScreen(screen);
-        if (claudeStatus) {
-          setStatus(s.id, claudeStatus);
-        }
+        if (!claudeStatus) return;
+        setStatus(s.id, claudeStatus);
       });
     }
   } else {
@@ -772,11 +792,11 @@ listen<{ id: string; data: string }>("pty:output", (e) => {
 setInterval(() => {
   for (const s of sessions.values()) {
     if (s.kind !== "agent") continue;
+    if (hookPiloted.has(s.id)) continue;
     const screen = readScreen(s.term);
     const claudeStatus = detectClaudeStatusFromScreen(screen);
-    if (claudeStatus && claudeStatus !== s.status) {
-      setStatus(s.id, claudeStatus);
-    }
+    if (!claudeStatus || claudeStatus === s.status) continue;
+    setStatus(s.id, claudeStatus);
   }
 }, 1000);
 
@@ -791,11 +811,32 @@ listen<{ session_id: string | null; event: string; payload: any }>(
   "agent:event",
   (e) => {
     const sid = e.payload.session_id;
+    const ev = e.payload.event;
     if (!sid) return;
-    if (e.payload.event === "Notification" || e.payload.event === "UserPromptSubmit") {
-      setStatus(sid, "waiting");
-    } else if (e.payload.event === "Stop") {
-      setStatus(sid, "idle");
+    // Premier hook reçu pour cette session → on bascule en mode "hooks pilotent",
+    // le parsing visuel devient inactif (évite les yoyo post-Stop).
+    hookPiloted.add(sid);
+    // Mapping hook → statut. Source de vérité prioritaire sur le parsing visuel.
+    //  UserPromptSubmit  : l'user vient de soumettre → Claude commence à bosser
+    //  PreToolUse        : Claude utilise un outil → toujours running
+    //  PostToolUse       : fin d'un outil mais Claude continue le turn → running
+    //  Stop              : fin du turn → idle
+    //  Notification      : prompt de permission ou attention requise → waiting
+    if (ev === "UserPromptSubmit" || ev === "PreToolUse" || ev === "PostToolUse") {
+      setStatus(sid, "running");
+    } else if (ev === "Stop") {
+      // Fin de turn : "done" (Claude n'a rien à faire, à toi de jouer si tu
+      // veux). On garde idle pour le cas où Claude n'a jamais été utilisé.
+      setStatus(sid, "done");
+    } else if (ev === "Notification") {
+      // Les forks "auto mode" envoient une Notification cosmétique à la fin
+      // du turn ("Claude is waiting for your input"). On la traite comme un
+      // Stop pour ne pas alarmer faussement l'utilisateur. Les vraies demandes
+      // (permission, question de Claude) ont d'autres wordings et passent en
+      // waiting (orange clignotant).
+      const msg = String(e.payload.payload?.message ?? "").toLowerCase();
+      const isCosmetic = msg.includes("waiting for your input");
+      setStatus(sid, isCosmetic ? "done" : "waiting");
     }
   }
 );
