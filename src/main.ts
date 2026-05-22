@@ -453,7 +453,7 @@ function activate(id: string) {
   renderSidebar();
   updateWindowTitle();
   requestAnimationFrame(() => {
-    s.fit.fit();
+    s.syncSize();
     s.term.focus();
   });
 }
@@ -562,6 +562,13 @@ async function spawnSession(opts: {
 
   upsertSessionMeta(s.name, { kind: opts.kind });
 
+  // Rendre le pane visible AVANT le spawn : sans la classe `active` le pane est
+  // en display:none → offsetWidth 0 → syncSize ne peut pas mesurer la grille.
+  // En activant d'abord, syncSize fite sur la taille réelle et le PTY est créé
+  // d'emblée aux bonnes dimensions (sinon spawn à 80×24 → contenu mal placé).
+  activate(id);
+  s.syncSize();
+
   try {
     await invoke("spawn_terminal", {
       args: {
@@ -585,7 +592,6 @@ async function spawnSession(opts: {
 
   if (opts.cwd) sessionCwd.set(id, opts.cwd);
 
-  activate(id);
   return s;
 }
 
@@ -611,6 +617,7 @@ async function closeSession(id: string, opts?: { killTmux?: boolean }) {
   }
 
   await invoke("kill_terminal", { id }).catch(() => {});
+  s.resizeObserver.disconnect();
   s.term.dispose();
   s.pane.remove();
   if (tmuxName) attachedTmux.delete(tmuxName);
@@ -929,7 +936,7 @@ function applySettingsToSessions() {
     s.term.options.fontSize = cfg.ui.fontSize;
     s.term.options.theme = getTheme(cfg.ui.themeId).term;
     // Force xterm à recalculer après changement de police/taille.
-    requestAnimationFrame(() => s.fit.fit());
+    requestAnimationFrame(() => s.syncSize());
   }
 }
 
@@ -956,7 +963,7 @@ document.getElementById("new-section")?.addEventListener("click", () => {
 
 window.addEventListener("resize", () => {
   for (const s of sessions.values()) {
-    if (s.pane.classList.contains("active")) s.fit.fit();
+    if (s.pane.classList.contains("active")) s.syncSize();
   }
 });
 
@@ -997,9 +1004,8 @@ function setupSidebarResizer() {
     if (!dragging) return;
     const w = Math.max(160, Math.min(560, startWidth + (e.clientX - startX)));
     sidebar.style.width = `${w}px`;
-    for (const s of sessions.values()) {
-      if (s.pane.classList.contains("active")) s.fit.fit();
-    }
+    // Le ResizeObserver du pane actif détecte le changement de largeur et
+    // refite (xterm reflow en direct, PTY notifié en trailing-edge debouncé).
   });
   window.addEventListener("mouseup", () => {
     if (!dragging) return;

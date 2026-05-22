@@ -17,6 +17,13 @@ export interface Session {
   fit: FitAddon;
   pane: HTMLDivElement;
   lastOutputAt: number;
+  /** Observe les changements de taille du pane pour re-fit sans rater un cas
+   *  (ouverture/fermeture sidebar, layout, transition CSS…). Voir syncSize. */
+  resizeObserver: ResizeObserver;
+  /** Recalcule la grille xterm depuis la taille du pane, notifie le PTY si
+   *  cols/rows ont réellement changé, et nettoie les résidus. No-op si le pane
+   *  n'est pas encore layouté (largeur 0). */
+  syncSize: () => void;
 }
 
 export function createSession(opts: {
@@ -40,14 +47,15 @@ export function createSession(opts: {
   term.loadAddon(fit);
   term.loadAddon(new WebLinksAddon());
 
-  // Bug WebKit2GTK + AZERTY : pour une touche directe non-ASCII (é, à, è, ç…),
-  // WebKit envoie keydown { keyCode:229 } (sentinel IME) puis plusieurs events
-  // `input` sur le textarea xterm → caractère envoyé 2-3× au PTY.
-  // Workaround : bloquer le keydown 229 dans xterm, capturer le 1er event
-  // `input` sur le textarea (qui contient le caractère résolu), l'émettre
-  // immédiatement, et bloquer les events `input` suivants jusqu'au prochain
-  // keydown. Émettre dès le 1er input → pas de latence vs taper au keyup.
-  // Voir tauri#3136, xterm.js#5348.
+  // Bug WebKit2GTK + AZERTY : la saisie non-ASCII passe par une composition IME
+  // (keydown { keyCode:229 } sentinel) que xterm gère mal → caractère doublé.
+  //  - Touche directe (é, à, è, ç…) : 1 keydown 229 + events `input`.
+  //  - Touche morte (^ puis e → ê) : 2 keydown 229, un `input` provisoire
+  //    portant le « ^ » puis un `input` final portant le « ê ».
+  // Workaround : bloquer le keydown 229 dans xterm, et sur le textarea ne
+  // retenir que l'event `input` FINAL (inputType insertFromComposition /
+  // insertText), en ignorant le « ^ » provisoire. Voir le handler `input`
+  // plus bas. tauri#3136, xterm.js#5348.
   let composingNonAscii = false;
   let firstInputConsumed = false;
   // Comm du process foreground (mis à jour par le poll meta côté main.ts).
@@ -115,10 +123,23 @@ export function createSession(opts: {
       (ev) => {
         if (!composingNonAscii) return;
         const inputEv = ev as InputEvent;
-        if (!firstInputConsumed && inputEv.data) {
+        // Discriminer via inputType (vérifié sur WebKit2GTK + AZERTY) :
+        //  - "insertCompositionText" → texte PROVISOIRE : pour une touche morte
+        //    (^ puis e) c'est le « ^ » d'aperçu. Ne PAS l'émettre, sinon on
+        //    obtient « ^ê » au lieu de « ê ».
+        //  - "insertFromComposition" / "insertText" → caractère FINAL résolu
+        //    (ê, é, à…). C'est lui qu'on envoie au PTY.
+        // Les touches directes (é, à) n'émettent qu'un seul input, déjà de type
+        // "insertFromComposition" → comportement inchangé pour elles.
+        const isFinal =
+          inputEv.inputType === "insertFromComposition" ||
+          inputEv.inputType === "insertText";
+        if (isFinal && !firstInputConsumed && inputEv.data) {
           firstInputConsumed = true;
           term.input(inputEv.data, true);
         }
+        // Stopper TOUS les events input (y compris le ^ provisoire) pour que
+        // xterm ne double pas / n'insère pas le caractère mort.
         ev.stopImmediatePropagation();
         ta.value = "";
       },
@@ -130,9 +151,39 @@ export function createSession(opts: {
     invoke("write_to_terminal", { id: opts.id, data }).catch(console.error);
   });
 
+  // term.onResize ne se déclenche QUE quand cols/rows changent réellement.
+  // C'est donc le seul endroit qui notifie le PTY — et après le reflow xterm,
+  // on force un repaint pour effacer les résidus laissés par l'ancienne grille
+  // (spinner « Booping… » collé, cadre de prompt mal wrappé…).
   term.onResize(({ cols, rows }) => {
     invoke("resize_terminal", { id: opts.id, cols, rows }).catch(console.error);
+    term.refresh(0, term.rows - 1);
   });
+
+  // Recalcule la grille depuis la taille du pane. fit() ne déclenche onResize
+  // que si la taille a changé → pas de boucle avec le ResizeObserver, pas de
+  // spam du PTY. No-op tant que le pane n'est pas layouté (offsetWidth 0),
+  // p. ex. créé dans un onglet inactif — l'observer rappellera au bon moment.
+  const syncSize = () => {
+    if (pane.offsetWidth === 0 || pane.offsetHeight === 0) return;
+    fit.fit();
+  };
+
+  // Debounce : pendant un drag de sidebar, le pane change de taille en rafale.
+  // On laisse xterm reflow en continu (fluide visuellement) mais on attend
+  // ~120 ms de stabilité avant de notifier le PTY, pour ne pas le spammer.
+  // syncSize est rappelé en trailing edge → l'état final est toujours synchro.
+  let debounceTimer: number | undefined;
+  const debouncedSync = () => {
+    if (debounceTimer !== undefined) clearTimeout(debounceTimer);
+    debounceTimer = window.setTimeout(syncSize, 120);
+  };
+
+  const resizeObserver = new ResizeObserver(debouncedSync);
+  resizeObserver.observe(pane);
+
+  // Fit dès que le pane a une taille réelle, avant tout rendu du process.
+  requestAnimationFrame(syncSize);
 
   return {
     id: opts.id,
@@ -143,6 +194,8 @@ export function createSession(opts: {
     fit,
     pane,
     lastOutputAt: Date.now(),
+    resizeObserver,
+    syncSize,
   };
 }
 
