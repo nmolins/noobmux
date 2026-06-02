@@ -10,7 +10,15 @@ export type SessionStatus = "idle" | "running" | "waiting" | "done" | "error";
 
 export interface Session {
   id: string;
+  /** Nom interne stable : clé de persistance (couleur, section, ordre). Pour
+   *  une session Claude, le libellé AFFICHÉ est dérivé via displayName() et non
+   *  ce champ — voir claudeName. */
   name: string;
+  /** Nom de la session côté Claude Code (champ `name` de
+   *  ~/.claude/sessions/<pid>.json, posé par /title). undefined si la session
+   *  n'est pas (encore) une session Claude ou n'a pas été nommée. Le libellé
+   *  affiché devient alors « Claude » ou « Claude : <claudeName> ». */
+  claudeName?: string;
   kind: SessionKind;
   status: SessionStatus;
   term: Terminal;

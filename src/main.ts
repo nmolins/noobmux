@@ -248,7 +248,7 @@ function buildSessionItem(s: Session): HTMLLIElement {
   li.innerHTML = `
     <div class="session-row">
       <span class="status-dot ${s.status}"></span>
-      <span class="session-name">${escapeHtml(s.name)}</span>
+      <span class="session-name">${escapeHtml(displayName(s))}</span>
       <span class="session-badges">${badges}</span>
     </div>
     ${metaLine}
@@ -359,6 +359,16 @@ function beginRenameById(id: string) {
 }
 
 function beginRename(li: HTMLLIElement, s: Session) {
+  // Sessions Claude : le libellé (« Claude : <nom> ») est piloté par les hooks
+  // et resynchronisé en continu depuis Claude — un renommage manuel serait
+  // écrasé au prochain event. On l'interdit pour éviter toute confusion ;
+  // renommer la session se fait côté Claude (/title).
+  if (s.claudeName !== undefined) {
+    li.classList.remove("notif-flash");
+    void li.offsetWidth;
+    li.classList.add("notif-flash");
+    return;
+  }
   const nameEl = li.querySelector(".session-name") as HTMLSpanElement;
   const oldName = s.name;
   renamingId = s.id;
@@ -460,7 +470,7 @@ function activate(id: string) {
 
 function updateWindowTitle() {
   const s = activeId ? sessions.get(activeId) : null;
-  const title = s ? `${s.name} — noobmux` : "noobmux";
+  const title = s ? `${displayName(s)} — noobmux` : "noobmux";
   // Note : sur GNOME/Wayland avec CSD, la barre de titre affiche `productName`
   // (« noobmux ») au lieu de cette chaîne. setTitle change quand même
   // _NET_WM_NAME donc des outils externes (wmctrl, alt-tab certains WM) voient
@@ -495,6 +505,43 @@ function setKind(id: string, kind: SessionKind) {
   s.kind = kind;
   upsertSessionMeta(s.name, { kind });
   renderSidebar();
+}
+
+// Libellé affiché dans la sidebar / le titre de fenêtre. Pour une session
+// Claude pilotée par les hooks, le nom interne (s.name, clé de persistance)
+// est ignoré au profit de « Claude » ou « Claude : <nom de session Claude> ».
+// Les sessions shell/agent non pilotées gardent leur nom tel quel.
+function displayName(s: Session): string {
+  if (s.claudeName !== undefined) {
+    return s.claudeName ? `Claude : ${s.claudeName}` : "Claude";
+  }
+  return s.name;
+}
+
+// Resynchronise le nom de session Claude d'une session noobmux à partir de
+// l'UUID Claude reçu dans un hook. Lit ~/.claude/sessions/<pid>.json côté Rust.
+// Appelé à chaque agent:event → couvre (a) détection, (b) nom initial, et
+// (c) mise à jour quand l'utilisateur renomme la session dans Claude.
+async function syncClaudeName(noobmuxId: string, claudeSessionId: string | null) {
+  const s = sessions.get(noobmuxId);
+  if (!s) return;
+  if (claudeSessionId) claudeSessionIds.set(noobmuxId, claudeSessionId);
+  let claudeName = "";
+  if (claudeSessionId) {
+    try {
+      claudeName = (await invoke<string | null>("get_claude_session_name", {
+        claudeSessionId,
+      })) ?? "";
+    } catch (e) {
+      console.warn("[noobmux] get_claude_session_name failed:", e);
+    }
+  }
+  // La session a pu disparaître pendant l'await.
+  const cur = sessions.get(noobmuxId);
+  if (!cur || cur.claudeName === claudeName) return;
+  cur.claudeName = claudeName;
+  renderSidebar();
+  if (cur.id === activeId) updateWindowTitle();
 }
 
 function moveSessionToSection(sessionId: string, sectionId: string) {
@@ -747,6 +794,11 @@ const lastScreenCheck = new Map<string, number>();
 // déclenche des transitions fantômes après Stop).
 const hookPiloted = new Set<string>();
 
+// noobmuxId → UUID de la session Claude, mémorisé depuis les hooks. Sert au
+// poll périodique de resync du nom (cas où l'utilisateur fait /title dans
+// Claude sans déclencher de nouvel event de hook ensuite).
+const claudeSessionIds = new Map<string, string>();
+
 listen<{ id: string; data: string }>("pty:output", (e) => {
   const s = sessions.get(e.payload.id);
   if (!s) return;
@@ -756,6 +808,14 @@ listen<{ id: string; data: string }>("pty:output", (e) => {
 
   if (s.kind === "shell" && looksLikeClaude(e.payload.data)) {
     setKind(s.id, "agent");
+    // Renommage auto en « Claude » dès la détection visuelle (hooks absents ou
+    // pas encore reçus). Si les hooks sont actifs, syncClaudeName affinera
+    // ensuite avec le nom de session réel (« Claude : <nom> »).
+    if (s.claudeName === undefined) {
+      s.claudeName = "";
+      renderSidebar();
+      if (s.id === activeId) updateWindowTitle();
+    }
   }
 
   if (s.kind === "agent") {
@@ -807,6 +867,21 @@ setInterval(() => {
   }
 }, 1000);
 
+// Re-scan périodique des noms de session Claude : si l'utilisateur fait /title
+// dans Claude sans déclencher d'autre event de hook, le nom changerait dans
+// ~/.claude/sessions/<pid>.json sans qu'on en soit notifié. Ce poll lent
+// rattrape ces renommages « silencieux ». syncClaudeName est un no-op si le
+// nom n'a pas bougé (pas de re-render inutile).
+setInterval(() => {
+  for (const [noobmuxId, claudeSessionId] of claudeSessionIds) {
+    if (!sessions.has(noobmuxId)) {
+      claudeSessionIds.delete(noobmuxId);
+      continue;
+    }
+    void syncClaudeName(noobmuxId, claudeSessionId);
+  }
+}, 2000);
+
 listen<{ id: string; code: number | null }>("pty:exit", (e) => {
   const s = sessions.get(e.payload.id);
   if (!s) return;
@@ -814,7 +889,13 @@ listen<{ id: string; code: number | null }>("pty:exit", (e) => {
   setStatus(s.id, "idle");
 });
 
-listen<{ session_id: string | null; event: string; payload: any }>(
+listen<{
+  session_id: string | null;
+  claude_session_id?: string | null;
+  cwd?: string | null;
+  event: string;
+  payload: any;
+}>(
   "agent:event",
   (e) => {
     const sid = e.payload.session_id;
@@ -823,6 +904,12 @@ listen<{ session_id: string | null; event: string; payload: any }>(
     // Premier hook reçu pour cette session → on bascule en mode "hooks pilotent",
     // le parsing visuel devient inactif (évite les yoyo post-Stop).
     hookPiloted.add(sid);
+    // Un hook Claude a parlé → c'est une session agent à coup sûr (badge AI).
+    setKind(sid, "agent");
+    // Resynchronise le libellé « Claude » / « Claude : <nom> » à chaque event :
+    // gère le nom initial et les renommages faits dans Claude (/title) au fil
+    // de la session. No-op si rien n'a changé.
+    syncClaudeName(sid, e.payload.claude_session_id ?? null);
     // Mapping hook → statut. Source de vérité prioritaire sur le parsing visuel.
     //  UserPromptSubmit  : l'user vient de soumettre → Claude commence à bosser
     //  PreToolUse        : Claude utilise un outil → toujours running

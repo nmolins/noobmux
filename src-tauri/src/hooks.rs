@@ -7,6 +7,13 @@ use tokio::net::UnixListener;
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AgentEvent {
     pub session_id: Option<String>,
+    /// UUID de la session Claude (extrait du payload du hook), pour matcher le
+    /// fichier ~/.claude/sessions/<pid>.json et en lire le nom.
+    #[serde(default)]
+    pub claude_session_id: Option<String>,
+    /// Répertoire de travail de la session Claude (depuis le payload).
+    #[serde(default)]
+    pub cwd: Option<String>,
     pub event: String,
     pub payload: serde_json::Value,
 }

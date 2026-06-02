@@ -19,8 +19,19 @@ pub fn hook_cli(event: &str) -> i32 {
     let _ = std::io::stdin().read_to_string(&mut buf);
     let payload: serde_json::Value = serde_json::from_str(&buf).unwrap_or(serde_json::Value::Null);
     let session_id = std::env::var("NOOBMUX_SESSION_ID").ok();
+    // Le payload des hooks Claude Code contient son propre `session_id` (l'UUID
+    // de la session Claude) et le `cwd`. On les remonte à part pour que la GUI
+    // puisse retrouver le fichier ~/.claude/sessions/<pid>.json correspondant et
+    // en lire le nom de session (renommage auto en « Claude : <nom> »).
+    let claude_session_id = payload
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let cwd = payload.get("cwd").and_then(|v| v.as_str()).map(String::from);
     let message = serde_json::json!({
         "session_id": session_id,
+        "claude_session_id": claude_session_id,
+        "cwd": cwd,
         "event": event,
         "payload": payload,
     });
@@ -63,6 +74,7 @@ pub fn run() {
             tmux::list_tmux_sessions,
             tmux::tmux_kill_session,
             claude::list_claude_sessions,
+            claude::get_claude_session_name,
             download::download_to_downloads,
             config::load_config,
             config::save_config,
