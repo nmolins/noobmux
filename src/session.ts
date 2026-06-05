@@ -207,20 +207,3 @@ export function createSession(opts: {
   };
 }
 
-const PROMPT_PATTERNS = [
-  /\$\s*$/,
-  /❯\s*$/,
-  /»\s*$/,
-  /#\s*$/,
-  />\s*$/,
-];
-
-export function inferStatusFromOutput(prev: SessionStatus, data: string): SessionStatus {
-  // Strip ANSI sequences for simple pattern check.
-  const clean = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").trimEnd();
-  if (!clean) return prev;
-  for (const re of PROMPT_PATTERNS) {
-    if (re.test(clean)) return "idle";
-  }
-  return "running";
-}

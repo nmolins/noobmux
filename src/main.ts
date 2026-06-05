@@ -9,7 +9,6 @@ import {
   SessionKind,
   SessionStatus,
   createSession,
-  inferStatusFromOutput,
 } from "./session";
 import { showContextMenu } from "./contextMenu";
 import {
@@ -721,6 +720,36 @@ export function shouldUseExtendedShiftEnter(comm: string | undefined): boolean {
   return !SHELL_COMMS.has(comm.toLowerCase());
 }
 
+/** Statut d'un shell = process foreground réel, pas l'output. Si le foreground
+ *  est le shell lui-même (ou inconnu : prompt vide juste après spawn) → au
+ *  prompt, idle. Sinon une commande tourne → running. No-op sur les sessions
+ *  agent (statut piloté par hooks/screen). */
+function applyShellStatus(s: Session, foregroundComm: string | undefined) {
+  if (s.kind !== "shell") return;
+  const fg = foregroundComm?.toLowerCase();
+  const atPrompt = fg === undefined || SHELL_COMMS.has(fg);
+  setStatus(s.id, atPrompt ? "idle" : "running");
+}
+
+// Poll léger dédié au statut des shells : ne lit que le process foreground via
+// /proc (pas de git/ports), donc tournable à haute fréquence sans coût notable.
+// Le poll meta complet (git branch via sous-process, scan des ports) reste à
+// 4 s. Sépare une info qui doit être réactive d'infos coûteuses qui peuvent
+// rester lentes.
+async function pollShellStatus() {
+  for (const s of sessions.values()) {
+    if (s.kind !== "shell") continue;
+    try {
+      const pid = await invoke<number | null>("get_pty_pid", { id: s.id }).catch(() => null);
+      if (pid == null) continue;
+      const comm = await invoke<string | null>("get_foreground_process", { pid });
+      applyShellStatus(s, comm ?? undefined);
+    } catch {
+      // ignore
+    }
+  }
+}
+
 async function refreshSessionMetadata() {
   for (const s of sessions.values()) {
     try {
@@ -742,6 +771,8 @@ async function refreshSessionMetadata() {
         | ((c: string | undefined) => void)
         | undefined;
       setFg?.(next.foregroundComm);
+
+      applyShellStatus(s, next.foregroundComm);
       if (
         prev?.gitBranch !== next.gitBranch ||
         prev?.ports?.join(",") !== next.ports?.join(",")
@@ -833,9 +864,10 @@ listen<{ id: string; data: string }>("pty:output", (e) => {
         setStatus(s.id, claudeStatus);
       });
     }
-  } else {
-    setStatus(s.id, inferStatusFromOutput(s.status, e.payload.data));
   }
+  // Le statut d'un shell n'est PLUS dérivé de l'output (regex de prompt
+  // fragile : prompt riche/Starship jamais matché → vert collé en permanence).
+  // Il est piloté par le process foreground réel dans refreshSessionMetadata.
 
   const tmuxName = detectTmuxSession(e.payload.data);
   if (tmuxName && (s as any).tmuxName !== tmuxName) {
@@ -1116,6 +1148,8 @@ function setupSidebarResizer() {
   setInterval(pollTmux, 3000);
   refreshSessionMetadata();
   setInterval(refreshSessionMetadata, 4000);
+  pollShellStatus();
+  setInterval(pollShellStatus, 1000);
   // Auto-check updates au boot (silencieux). 3s de délai pour ne pas bloquer.
   setTimeout(async () => {
     const update = await checkForUpdate({ silent: true });
