@@ -97,11 +97,38 @@ pub fn spawn_terminal(
     let app_for_reader = app.clone();
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
+        // Octets résiduels d'un caractère UTF-8 multi-octets coupé à la frontière
+        // du chunk précédent. On les rejoue en tête du chunk suivant pour ne pas
+        // les décoder à moitié (sinon `from_utf8_lossy` les remplace par U+FFFD →
+        // box-drawing/accents/emojis corrompus, et toute séquence ANSI scindée
+        // est abandonnée par xterm → résidus à l'écran qui ne s'effacent pas).
+        let mut carry: Vec<u8> = Vec::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let mut chunk = std::mem::take(&mut carry);
+                    chunk.extend_from_slice(&buf[..n]);
+                    // Trouver la plus longue tête valide UTF-8 ; garder l'éventuel
+                    // caractère incomplet de fin pour la prochaine lecture.
+                    let valid_up_to = match std::str::from_utf8(&chunk) {
+                        Ok(_) => chunk.len(),
+                        Err(e) => {
+                            // error_len() == None → octet de tête d'un caractère
+                            // tronqué en fin de chunk : on le reporte. Sinon c'est
+                            // une vraie séquence invalide au milieu → on la laisse
+                            // à from_utf8_lossy (remplacement) et on continue.
+                            match e.error_len() {
+                                None => e.valid_up_to(),
+                                Some(_) => chunk.len(),
+                            }
+                        }
+                    };
+                    if valid_up_to < chunk.len() {
+                        carry = chunk[valid_up_to..].to_vec();
+                        chunk.truncate(valid_up_to);
+                    }
+                    let data = String::from_utf8_lossy(&chunk).to_string();
                     let _ = app_for_reader.emit(
                         "pty:output",
                         PtyOutput {
@@ -112,6 +139,17 @@ pub fn spawn_terminal(
                 }
                 Err(_) => break,
             }
+        }
+        // Résidu non complété en fin de flux : le rendre tel quel (remplacement)
+        // plutôt que de le perdre silencieusement.
+        if !carry.is_empty() {
+            let _ = app_for_reader.emit(
+                "pty:output",
+                PtyOutput {
+                    id: id_for_reader.clone(),
+                    data: String::from_utf8_lossy(&carry).to_string(),
+                },
+            );
         }
         let _ = app_for_reader.emit(
             "pty:exit",
