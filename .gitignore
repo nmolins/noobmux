@@ -26,3 +26,6 @@ dist-ssr
 # Build artifacts
 design/preview-*.png
 design/icon-source.png
+
+# Claude Code harness runtime (scheduled-task lock, etc.)
+.claude/
