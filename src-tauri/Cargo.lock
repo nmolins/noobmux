@@ -2224,6 +2224,7 @@ version = "0.1.14"
 dependencies = [
  "dirs 5.0.1",
  "futures-util",
+ "libc",
  "parking_lot",
  "portable-pty",
  "reqwest 0.12.28",

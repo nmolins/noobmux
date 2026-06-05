@@ -115,7 +115,7 @@ fn child_pids(parent: u32) -> Vec<u32> {
         .collect()
 }
 
-fn all_descendants(root: u32) -> HashSet<u32> {
+pub fn all_descendants(root: u32) -> HashSet<u32> {
     let mut seen = HashSet::new();
     let mut stack = vec![root];
     while let Some(pid) = stack.pop() {
@@ -128,6 +128,34 @@ fn all_descendants(root: u32) -> HashSet<u32> {
     }
     seen
 }
+
+/// Tue tout l'arbre de process enraciné en `root` (root inclus).
+///
+/// `child.kill()` n'envoie SIGKILL qu'au shell : un `pnpm dev`/`node` lancé
+/// dedans survit, orphelin, et garde son port occupé. On énumère donc tous les
+/// descendants via /proc AVANT d'envoyer le moindre signal (l'arbre s'effondre
+/// dès le premier kill), puis SIGTERM doux pour laisser une chance de cleanup,
+/// court délai, et SIGKILL sur les survivants.
+#[cfg(unix)]
+pub fn kill_process_tree(root: u32) {
+    // Snapshot complet avant tout signal — sinon les enfants reparentés vers
+    // init disparaissent de l'arbre dès que le shell meurt.
+    let pids = all_descendants(root);
+    unsafe {
+        for &pid in &pids {
+            libc::kill(pid as libc::pid_t, libc::SIGTERM);
+        }
+    }
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    unsafe {
+        for &pid in &pids {
+            libc::kill(pid as libc::pid_t, libc::SIGKILL);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+pub fn kill_process_tree(_root: u32) {}
 
 /// Parse /proc/net/tcp and tcp6 to find sockets in LISTEN state owned by any
 /// PID in `pids` (resolved via /proc/<pid>/fd inode matching).

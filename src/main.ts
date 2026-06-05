@@ -39,6 +39,14 @@ import { checkForUpdate, showUpdateBanner } from "./updater";
 const LAST_DIR_KEY = "noobmux:lastDir";
 
 const sessions = new Map<string, Session>();
+// Sessions dont la fermeture est pilotée par l'utilisateur (closeSession a déjà
+// fait/va faire le teardown). Le handler pty:exit consécutif au kill ne doit pas
+// re-traiter ces sessions comme « process mort tout seul ».
+const closing = new Set<string>();
+// Sessions dont le process est mort (pty:exit reçu) mais qu'on garde affichées
+// en « done »/« error ». Leur PTY n'existe plus côté Rust → exclues des polls de
+// statut, qui sinon écraseraient l'état figé.
+const exited = new Set<string>();
 let activeId: string | null = null;
 let renamingId: string | null = null;
 let renamingSectionId: string | null = null;
@@ -648,6 +656,9 @@ async function runInSession(id: string, data: string) {
 async function closeSession(id: string, opts?: { killTmux?: boolean }) {
   const s = sessions.get(id);
   if (!s) return;
+  // Marquer la fermeture comme pilotée : le pty:exit déclenché par le kill ne
+  // doit pas la re-traiter comme une mort spontanée du process.
+  closing.add(id);
   const tmuxName = (s as any).tmuxName as string | undefined;
 
   if (tmuxName && !opts?.killTmux) {
@@ -673,6 +684,8 @@ async function closeSession(id: string, opts?: { killTmux?: boolean }) {
   sessionMetaCache.delete(id);
   removeSessionMeta(s.name);
   sessions.delete(id);
+  closing.delete(id);
+  exited.delete(id);
   if (activeId === id) {
     activeId = sessions.keys().next().value ?? null;
     if (activeId) activate(activeId);
@@ -739,10 +752,13 @@ function applyShellStatus(s: Session, foregroundComm: string | undefined) {
 async function pollShellStatus() {
   for (const s of sessions.values()) {
     if (s.kind !== "shell") continue;
+    if (exited.has(s.id)) continue; // process mort, statut figé en done/error
     try {
       const pid = await invoke<number | null>("get_pty_pid", { id: s.id }).catch(() => null);
       if (pid == null) continue;
       const comm = await invoke<string | null>("get_foreground_process", { pid });
+      // La session a pu être fermée/mourir pendant les awaits ci-dessus.
+      if (!sessions.has(s.id) || exited.has(s.id)) continue;
       applyShellStatus(s, comm ?? undefined);
     } catch {
       // ignore
@@ -752,6 +768,7 @@ async function pollShellStatus() {
 
 async function refreshSessionMetadata() {
   for (const s of sessions.values()) {
+    if (exited.has(s.id)) continue; // plus de process à interroger
     try {
       const pid = await invoke<number | null>("get_pty_pid", { id: s.id }).catch(() => null);
       const cwd = sessionCwd.get(s.id) ?? null;
@@ -760,6 +777,8 @@ async function refreshSessionMetadata() {
         ports: number[];
         foreground_comm: string | null;
       }>("get_session_metadata", { cwd, pid });
+      // La session a pu être fermée/mourir pendant les awaits ci-dessus.
+      if (!sessions.has(s.id) || exited.has(s.id)) continue;
       const prev = sessionMetaCache.get(s.id);
       const next: SessionRuntimeMeta = {
         gitBranch: meta.git_branch ?? undefined,
@@ -917,8 +936,22 @@ setInterval(() => {
 listen<{ id: string; code: number | null }>("pty:exit", (e) => {
   const s = sessions.get(e.payload.id);
   if (!s) return;
-  s.term.write(`\r\n\x1b[90m[exited]\x1b[0m\r\n`);
-  setStatus(s.id, "idle");
+  // Fermeture pilotée par l'utilisateur : closeSession fait/a fait le teardown.
+  if (closing.has(e.payload.id)) return;
+
+  // Process mort tout seul (exit, crash, fin de commande). Le PTY backend est
+  // déjà retiré côté Rust ; ici on fige la session en « done » plutôt que de la
+  // laisser en « idle » trompeur, et on coupe les polls (plus de PTY à sonder).
+  const code = e.payload.code;
+  const label = code == null ? "[exited]" : `[exited ${code}]`;
+  const color = code ? "31" : "90"; // rouge si code non-nul, gris sinon
+  s.term.write(`\r\n\x1b[${color}m${label}\x1b[0m\r\n`);
+  exited.add(s.id);
+  setStatus(s.id, code ? "error" : "done");
+  // Stopper la détection de statut pour cette session : son foreground n'existe
+  // plus, inutile de la sonder (et get_pty_pid renverrait une erreur).
+  lastScreenCheck.delete(s.id);
+  hookPiloted.delete(s.id);
 });
 
 listen<{

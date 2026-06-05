@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 pub struct PtySession {
     pub master: Box<dyn MasterPty + Send>,
@@ -151,11 +151,22 @@ pub fn spawn_terminal(
                 },
             );
         }
+        // Le flux est clos → le process est mort (ou en train de l'être). On
+        // retire la session du manager (sinon le HashMap fuit pour toute session
+        // terminée par `exit`/crash, jamais via kill_terminal) et on reape le
+        // child pour récupérer son code et ne pas laisser de zombie.
+        let mgr = app_for_reader.state::<PtyManager>();
+        let code = if let Some(session) = mgr.sessions.lock().remove(&id_for_reader) {
+            let mut s = session.lock();
+            s.child.wait().ok().map(|st| st.exit_code())
+        } else {
+            None
+        };
         let _ = app_for_reader.emit(
             "pty:exit",
             PtyExit {
                 id: id_for_reader,
-                code: None,
+                code,
             },
         );
     });
@@ -215,7 +226,16 @@ pub fn kill_terminal(state: State<'_, PtyManager>, id: String) -> Result<(), Str
     let mut sessions = state.sessions.lock();
     if let Some(session) = sessions.remove(&id) {
         let mut s = session.lock();
-        let _ = s.child.kill();
+        // Tuer tout l'arbre (shell + pnpm dev/node/… lancés dedans), pas juste le
+        // shell — sinon les enfants restent orphelins et gardent leur port.
+        // child.kill() seul ne propage rien (SIGKILL non catchable côté shell).
+        if let Some(pid) = s.child.process_id() {
+            crate::meta::kill_process_tree(pid);
+        } else {
+            let _ = s.child.kill();
+        }
+        // Reaper le shell pour ne pas laisser de zombie dans la table des process.
+        let _ = s.child.wait();
     }
     Ok(())
 }
