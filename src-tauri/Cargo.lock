@@ -2220,7 +2220,7 @@ dependencies = [
 
 [[package]]
 name = "noobmux"
-version = "0.1.15"
+version = "0.2.0"
 dependencies = [
  "dirs 5.0.1",
  "futures-util",
