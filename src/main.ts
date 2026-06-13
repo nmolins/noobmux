@@ -215,6 +215,36 @@ function renderSidebar() {
   }
 }
 
+function badgesHtml(s: Session): string {
+  const tmuxName = (s as any).tmuxName as string | undefined;
+  const isSsh = s.kind === "shell" && isSshComm(sessionMetaCache.get(s.id)?.foregroundComm);
+  return [
+    s.kind === "agent"
+      ? `<span class="session-kind kind-ai">AI</span>`
+      : `<span class="session-kind kind-sh">sh</span>`,
+    isSsh
+      ? `<span class="session-kind kind-ssh" title="Connexion SSH/mosh active">ssh</span>`
+      : "",
+    tmuxName
+      ? `<span class="session-kind kind-tmux" title="tmux:${escapeHtml(tmuxName)}">tmux</span>`
+      : "",
+  ].join("");
+}
+
+function metaLineHtml(s: Session): string {
+  const rt = sessionMetaCache.get(s.id);
+  const metaParts: string[] = [];
+  if (rt?.gitBranch) {
+    metaParts.push(`<span class="meta-git" title="Branche git">⎇ ${escapeHtml(rt.gitBranch)}</span>`);
+  }
+  if (rt?.ports && rt.ports.length > 0) {
+    metaParts.push(
+      `<span class="meta-ports" title="Ports en écoute">:${rt.ports.slice(0, 3).join(", :")}${rt.ports.length > 3 ? "…" : ""}</span>`
+    );
+  }
+  return metaParts.length > 0 ? `<div class="session-meta">${metaParts.join("")}</div>` : "";
+}
+
 function buildSessionItem(s: Session): HTMLLIElement {
   const cfg = getConfig();
   const meta = cfg.sessionMeta[s.name];
@@ -230,31 +260,8 @@ function buildSessionItem(s: Session): HTMLLIElement {
   li.draggable = true;
   if (color) li.style.setProperty("--session-color", color);
 
-  const tmuxName = (s as any).tmuxName as string | undefined;
-  const isSsh = s.kind === "shell" && isSshComm(sessionMetaCache.get(s.id)?.foregroundComm);
-  const badges = [
-    s.kind === "agent"
-      ? `<span class="session-kind kind-ai">AI</span>`
-      : `<span class="session-kind kind-sh">sh</span>`,
-    isSsh
-      ? `<span class="session-kind kind-ssh" title="Connexion SSH/mosh active">ssh</span>`
-      : "",
-    tmuxName
-      ? `<span class="session-kind kind-tmux" title="tmux:${escapeHtml(tmuxName)}">tmux</span>`
-      : "",
-  ].join("");
-
-  const rt = sessionMetaCache.get(s.id);
-  const metaParts: string[] = [];
-  if (rt?.gitBranch) {
-    metaParts.push(`<span class="meta-git" title="Branche git">⎇ ${escapeHtml(rt.gitBranch)}</span>`);
-  }
-  if (rt?.ports && rt.ports.length > 0) {
-    metaParts.push(
-      `<span class="meta-ports" title="Ports en écoute">:${rt.ports.slice(0, 3).join(", :")}${rt.ports.length > 3 ? "…" : ""}</span>`
-    );
-  }
-  const metaLine = metaParts.length > 0 ? `<div class="session-meta">${metaParts.join("")}</div>` : "";
+  const badges = badgesHtml(s);
+  const metaLine = metaLineHtml(s);
 
   li.innerHTML = `
     <div class="session-row">
@@ -339,20 +346,25 @@ function updateSidebarInPlace() {
     li.classList.toggle("notif-waiting", s.status === "waiting");
     const dot = li.querySelector(".status-dot") as HTMLSpanElement;
     dot.className = `status-dot ${s.status}`;
-    const badges = li.querySelector(".session-badges") as HTMLSpanElement;
-    if (badges) {
-      const tmuxName = (s as any).tmuxName as string | undefined;
-      badges.innerHTML =
-        (s.kind === "agent"
-          ? `<span class="session-kind kind-ai">AI</span>`
-          : `<span class="session-kind kind-sh">sh</span>`) +
-        (tmuxName
-          ? `<span class="session-kind kind-tmux" title="tmux:${escapeHtml(tmuxName)}">tmux</span>`
-          : "");
+    const badgesEl = li.querySelector(".session-badges") as HTMLSpanElement;
+    if (badgesEl) {
+      badgesEl.innerHTML = badgesHtml(s);
     }
     if (renamingId !== s.id) {
       const name = li.querySelector(".session-name") as HTMLSpanElement;
       if (name.textContent !== s.name) name.textContent = s.name;
+    }
+    // Patch the meta line (git branch + ports). Add/remove the div as needed.
+    const newMeta = metaLineHtml(s);
+    const existingMeta = li.querySelector(".session-meta");
+    if (newMeta) {
+      if (existingMeta) {
+        existingMeta.outerHTML = newMeta;
+      } else {
+        li.insertAdjacentHTML("beforeend", newMeta);
+      }
+    } else {
+      existingMeta?.remove();
     }
   }
 }
@@ -497,7 +509,7 @@ function setStatus(id: string, status: SessionStatus) {
   if (!s || s.status === status) return;
   const prev = s.status;
   s.status = status;
-  renderSidebar();
+  updateSidebarInPlace();
   // Flash quand on passe en waiting depuis un autre état.
   if (status === "waiting" && prev !== "waiting") {
     const li = sectionListEl.querySelector(
@@ -516,7 +528,7 @@ function setKind(id: string, kind: SessionKind) {
   if (!s || s.kind === kind) return;
   s.kind = kind;
   upsertSessionMeta(s.name, { kind });
-  renderSidebar();
+  updateSidebarInPlace();
 }
 
 // Libellé affiché dans la sidebar / le titre de fenêtre. Pour une session
@@ -794,7 +806,7 @@ async function pollShellStatus() {
       const nextComm = comm ?? undefined;
       if (isSshComm(cached?.foregroundComm) !== isSshComm(nextComm)) {
         sessionMetaCache.set(s.id, { ...cached, foregroundComm: nextComm });
-        renderSidebar();
+        updateSidebarInPlace();
       }
     } catch {
       // ignore
@@ -837,7 +849,7 @@ async function refreshSessionMetadata() {
         isSshComm(prev?.foregroundComm) !== isSshComm(next.foregroundComm)
       ) {
         sessionMetaCache.set(s.id, next);
-        renderSidebar();
+        updateSidebarInPlace();
       }
     } catch {
       // ignore
