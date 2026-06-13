@@ -839,7 +839,6 @@ async function refreshSessionMetadata() {
         | undefined;
       setFg?.(next.foregroundComm);
 
-      applyShellStatus(s, next.foregroundComm);
       // Re-render si une info AFFICHÉE change : branche git, ports, ou bascule
       // SSH↔non-SSH (le badge « ssh » en dépend). Un simple changement de
       // foregroundComm sans franchir la frontière SSH n'affecte rien de visible.
