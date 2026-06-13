@@ -6,7 +6,7 @@ import { getConfig } from "./store";
 import { getTheme } from "./themes";
 
 export type SessionKind = "shell" | "agent";
-export type SessionStatus = "idle" | "running" | "waiting" | "done" | "error";
+export type SessionStatus = "idle" | "running" | "waiting" | "done" | "error" | "ssh";
 
 export interface Session {
   id: string;

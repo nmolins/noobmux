@@ -231,10 +231,14 @@ function buildSessionItem(s: Session): HTMLLIElement {
   if (color) li.style.setProperty("--session-color", color);
 
   const tmuxName = (s as any).tmuxName as string | undefined;
+  const isSsh = s.kind === "shell" && isSshComm(sessionMetaCache.get(s.id)?.foregroundComm);
   const badges = [
     s.kind === "agent"
       ? `<span class="session-kind kind-ai">AI</span>`
       : `<span class="session-kind kind-sh">sh</span>`,
+    isSsh
+      ? `<span class="session-kind kind-ssh" title="Connexion SSH/mosh active">ssh</span>`
+      : "",
     tmuxName
       ? `<span class="session-kind kind-tmux" title="tmux:${escapeHtml(tmuxName)}">tmux</span>`
       : "",
@@ -728,6 +732,19 @@ const SHELL_COMMS = new Set([
   "bash", "zsh", "fish", "sh", "dash", "ksh", "tcsh", "csh", "elvish", "nu", "xonsh",
 ]);
 
+/** Clients d'accès distant : le shell réel tourne sur la machine cible, donc on
+ *  ne peut pas inspecter son arbre de process via /proc local. Le foreground
+ *  local reste figé sur ce client tant que la connexion est ouverte → on
+ *  affiche un statut « ssh » dédié plutôt qu'un faux « running » permanent. */
+const SSH_COMMS = new Set([
+  "ssh", "mosh", "mosh-client", "et", "sshpass", "autossh",
+]);
+
+export function isSshComm(comm: string | undefined): boolean {
+  if (!comm) return false;
+  return SSH_COMMS.has(comm.toLowerCase());
+}
+
 export function shouldUseExtendedShiftEnter(comm: string | undefined): boolean {
   if (!comm) return false;
   return !SHELL_COMMS.has(comm.toLowerCase());
@@ -735,11 +752,16 @@ export function shouldUseExtendedShiftEnter(comm: string | undefined): boolean {
 
 /** Statut d'un shell = process foreground réel, pas l'output. Si le foreground
  *  est le shell lui-même (ou inconnu : prompt vide juste après spawn) → au
- *  prompt, idle. Sinon une commande tourne → running. No-op sur les sessions
- *  agent (statut piloté par hooks/screen). */
+ *  prompt, idle. Si c'est un client SSH/mosh, on ne peut pas voir l'arbre
+ *  distant → statut « ssh » neutre. Sinon une commande tourne → running. No-op
+ *  sur les sessions agent (statut piloté par hooks/screen). */
 function applyShellStatus(s: Session, foregroundComm: string | undefined) {
   if (s.kind !== "shell") return;
   const fg = foregroundComm?.toLowerCase();
+  if (fg !== undefined && SSH_COMMS.has(fg)) {
+    setStatus(s.id, "ssh");
+    return;
+  }
   const atPrompt = fg === undefined || SHELL_COMMS.has(fg);
   setStatus(s.id, atPrompt ? "idle" : "running");
 }
@@ -760,6 +782,15 @@ async function pollShellStatus() {
       // La session a pu être fermée/mourir pendant les awaits ci-dessus.
       if (!sessions.has(s.id) || exited.has(s.id)) continue;
       applyShellStatus(s, comm ?? undefined);
+      // Faire apparaître/disparaître le badge « ssh » sans attendre le poll meta
+      // (4 s) : ce poll-ci tourne plus vite. On ne re-render qu'au franchissement
+      // de la frontière SSH↔non-SSH, le seul changement visible ici.
+      const cached = sessionMetaCache.get(s.id);
+      const nextComm = comm ?? undefined;
+      if (isSshComm(cached?.foregroundComm) !== isSshComm(nextComm)) {
+        sessionMetaCache.set(s.id, { ...cached, foregroundComm: nextComm });
+        renderSidebar();
+      }
     } catch {
       // ignore
     }
@@ -792,9 +823,13 @@ async function refreshSessionMetadata() {
       setFg?.(next.foregroundComm);
 
       applyShellStatus(s, next.foregroundComm);
+      // Re-render si une info AFFICHÉE change : branche git, ports, ou bascule
+      // SSH↔non-SSH (le badge « ssh » en dépend). Un simple changement de
+      // foregroundComm sans franchir la frontière SSH n'affecte rien de visible.
       if (
         prev?.gitBranch !== next.gitBranch ||
-        prev?.ports?.join(",") !== next.ports?.join(",")
+        prev?.ports?.join(",") !== next.ports?.join(",") ||
+        isSshComm(prev?.foregroundComm) !== isSshComm(next.foregroundComm)
       ) {
         sessionMetaCache.set(s.id, next);
         renderSidebar();

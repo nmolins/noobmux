@@ -11,6 +11,7 @@
   --status-waiting: #e0af68;
   --status-done: #7aa2f7;
   --status-error: #f7768e;
+  --status-ssh: #2ac3de;
   --border: #353a52;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
@@ -309,6 +310,18 @@ html, body {
 .status-dot.waiting { background: var(--status-waiting); animation: pulse 1.4s infinite; }
 .status-dot.done { background: var(--status-done); }
 .status-dot.error { background: var(--status-error); }
+/* SSH : on ne peut pas inspecter l'arbre de process distant, donc statut neutre
+   « connecté ». Anneau statique (pas de spin) pour signaler le lien réseau sans
+   suggérer qu'une commande tourne. */
+.status-dot.ssh { background: var(--status-ssh); }
+.status-dot.ssh::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 1.5px solid var(--status-ssh);
+  opacity: 0.4;
+}
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
@@ -357,6 +370,10 @@ html, body {
 .session-kind.kind-tmux {
   background: rgba(125,207,255,0.12);
   color: #7dcfff;
+}
+.session-kind.kind-ssh {
+  background: rgba(42,195,222,0.15);
+  color: #2ac3de;
 }
 
 .sidebar-actions {
