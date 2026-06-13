@@ -1158,7 +1158,7 @@ document.getElementById("new-terminal-menu")?.addEventListener("click", (e) => {
               onClick: () =>
                 spawnSession({
                   kind: "shell",
-                  name: `ssh:${p.host}`,
+                  name: `ssh:${p.label || p.host}`,
                   command: buildSshCommand(p),
                   cwd: p.cwd ?? null,
                 }),
@@ -1245,11 +1245,18 @@ async function captureSessionsToRestore() {
         if (meta.resolved_cwd) cwd = meta.resolved_cwd;
       }
     } catch { /* garder le cwd de spawn */ }
+    // Une session « agent » lancée en tapant `claude` à la main dans un shell a
+    // été détectée visuellement (kind=agent, badge AI) mais sa commande de spawn
+    // est restée nulle. Pour la restaurer fidèlement, on relance `claude`.
+    let command = sessionCommand.get(s.id) ?? null;
+    if (s.kind === "agent" && command === null) {
+      command = ["claude"];
+    }
     out.push({
       name: s.name,
       kind: s.kind,
       cwd,
-      command: sessionCommand.get(s.id) ?? null,
+      command,
       tmuxName: (s as any).tmuxName as string | undefined,
     });
   }
