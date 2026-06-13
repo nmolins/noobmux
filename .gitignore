@@ -29,3 +29,6 @@ design/icon-source.png
 
 # Claude Code harness runtime (scheduled-task lock, etc.)
 .claude/
+
+# Backlog d'audit / plans d'implémentation (local, non versionné)
+plans/
