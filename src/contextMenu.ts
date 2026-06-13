@@ -21,8 +21,23 @@ export interface ContextMenuOpts {
   onMoveTo?: (sectionId: string) => void;
 }
 
+// Listener « clic en dehors » courant. Un seul à la fois : on retire toujours le
+// précédent avant d'en armer un nouveau, sinon le listener d'un menu parent ferme
+// aussitôt un sous-menu ré-ouvert depuis un onClick d'item (SSH, attach tmux…).
+let outsideClickHandler: ((e: MouseEvent) => void) | null = null;
+
+function clearOutsideClick() {
+  if (outsideClickHandler) {
+    document.removeEventListener("click", outsideClickHandler);
+    outsideClickHandler = null;
+  }
+}
+
 export function showContextMenu(opts: ContextMenuOpts) {
   const menu = document.getElementById("context-menu") as HTMLDivElement;
+  // Retirer le listener du menu précédent : un sous-menu ré-ouvert depuis un
+  // onClick d'item ne doit pas être fermé par le « clic dehors » du menu parent.
+  clearOutsideClick();
   menu.innerHTML = "";
 
   const addItem = (label: string, onClick: () => void, shortcut?: string) => {
@@ -111,13 +126,21 @@ export function showContextMenu(opts: ContextMenuOpts) {
     }
   });
 
+  // Fermer au prochain clic en dehors du menu. Posé en différé (setTimeout 0)
+  // pour ne pas capter le clic qui vient d'ouvrir ce menu. Stocké dans
+  // outsideClickHandler pour pouvoir le retirer si un sous-menu se ré-ouvre.
   const onDocClick = (e: MouseEvent) => {
     if (!menu.contains(e.target as Node)) hideContextMenu();
   };
-  setTimeout(() => document.addEventListener("click", onDocClick, { once: true }), 0);
+  setTimeout(() => {
+    clearOutsideClick();
+    outsideClickHandler = onDocClick;
+    document.addEventListener("click", onDocClick);
+  }, 0);
 }
 
 export function hideContextMenu() {
+  clearOutsideClick();
   const menu = document.getElementById("context-menu");
   menu?.classList.add("hidden");
 }
