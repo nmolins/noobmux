@@ -24,6 +24,18 @@ export interface UISettings {
   sidebarWidth: number;
 }
 
+/** Snapshot d'une session suffisant pour la recréer au reload. */
+export interface SessionRestore {
+  name: string;
+  kind: SessionKind;
+  cwd: string | null;
+  /** Commande de spawn explicite (ex. ["claude"], ["tmux","attach","-t","foo"]).
+   *  null = shell par défaut du système. */
+  command: string[] | null;
+  /** Nom de la session tmux sous-jacente (uniquement pour les sessions tmux). */
+  tmuxName?: string;
+}
+
 export interface NoobmuxConfig {
   sections: SectionConfig[];
   /** Ordered list of session ids inside the sidebar (excluding tmux builtin). */
@@ -32,6 +44,8 @@ export interface NoobmuxConfig {
   sessionMeta: Record<string, SessionMeta>;
   ui: UISettings;
   quickCommands: QuickCommand[];
+  /** Sessions à restaurer au prochain reload. Mis à jour en arrière-plan toutes les ~4 s. */
+  sessionsToRestore: SessionRestore[];
 }
 
 const DEFAULT_UI: UISettings = {
@@ -50,6 +64,7 @@ const DEFAULT_CONFIG: NoobmuxConfig = {
   sessionMeta: {},
   ui: structuredClone(DEFAULT_UI),
   quickCommands: structuredClone(DEFAULT_COMMANDS),
+  sessionsToRestore: [],
 };
 
 let cache: NoobmuxConfig = structuredClone(DEFAULT_CONFIG);
@@ -112,6 +127,11 @@ function mergeWithDefaults(raw: Record<string, unknown>): NoobmuxConfig {
       (c) => c && typeof c.label === "string" && typeof c.command === "string"
     );
   }
+  if (Array.isArray(raw.sessionsToRestore)) {
+    out.sessionsToRestore = (raw.sessionsToRestore as SessionRestore[]).filter(
+      (r) => r && typeof r.name === "string" && (r.kind === "shell" || r.kind === "agent")
+    );
+  }
   return out;
 }
 
@@ -155,6 +175,11 @@ export function renameSessionMeta(oldName: string, newName: string) {
 
 export function setSessionOrder(order: string[]) {
   cache.sessionOrder = order;
+  scheduleSave();
+}
+
+export function setSessionsToRestore(list: SessionRestore[]) {
+  cache.sessionsToRestore = list;
   scheduleSave();
 }
 

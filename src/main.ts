@@ -21,9 +21,11 @@ import {
   removeSessionMeta,
   scheduleSave,
   setSessionOrder,
+  setSessionsToRestore,
   toggleSection,
   updateUI,
   upsertSessionMeta,
+  type SessionRestore,
 } from "./store";
 import {
   detectClaudeStatusFromScreen,
@@ -666,6 +668,7 @@ async function spawnSession(opts: {
   }
 
   if (opts.cwd) sessionCwd.set(id, opts.cwd);
+  sessionCommand.set(id, opts.command ?? null);
 
   return s;
 }
@@ -702,6 +705,7 @@ async function closeSession(id: string, opts?: { killTmux?: boolean }) {
   lastScreenCheck.delete(id);
   hookPiloted.delete(id);
   sessionCwd.delete(id);
+  sessionCommand.delete(id);
   sessionMetaCache.delete(id);
   removeSessionMeta(s.name);
   sessions.delete(id);
@@ -736,6 +740,9 @@ function escapeHtml(s: string): string {
 
 // Stockage du cwd de chaque session noobmux (utile pour features futures).
 const sessionCwd = new Map<string, string>();
+// Commande de spawn de chaque session (null = shell par défaut). Utile pour
+// reconstruire la session à la restauration au reload.
+const sessionCommand = new Map<string, string[] | null>();
 
 interface SessionRuntimeMeta {
   gitBranch?: string;
@@ -1180,6 +1187,40 @@ function persistOrder() {
   setSessionOrder(order);
 }
 
+/** Capture un snapshot de toutes les sessions vivantes pour les recréer au reload. */
+async function captureSessionsToRestore() {
+  const order = getConfig().sessionOrder;
+  const live = Array.from(sessions.values());
+  const rank = (name: string) => {
+    const i = order.indexOf(name);
+    return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  live.sort((a, b) => rank(a.name) - rank(b.name));
+
+  const out: SessionRestore[] = [];
+  for (const s of live) {
+    if (exited.has(s.id)) continue;
+    let cwd = sessionCwd.get(s.id) ?? null;
+    try {
+      const pid = await invoke<number | null>("get_pty_pid", { id: s.id }).catch(() => null);
+      if (pid != null) {
+        const meta = await invoke<{ resolved_cwd: string | null }>(
+          "get_session_metadata", { cwd, pid }
+        );
+        if (meta.resolved_cwd) cwd = meta.resolved_cwd;
+      }
+    } catch { /* garder le cwd de spawn */ }
+    out.push({
+      name: s.name,
+      kind: s.kind,
+      cwd,
+      command: sessionCommand.get(s.id) ?? null,
+      tmuxName: (s as any).tmuxName as string | undefined,
+    });
+  }
+  setSessionsToRestore(out);
+}
+
 // ─── Boot ────────────────────────────────────────────────────────────────────
 
 declare const __APP_VERSION__: string;
@@ -1228,6 +1269,29 @@ function setupSidebarResizer() {
   setupSidebarResizer();
   renderSidebar();
   renderEmptyState();
+
+  // Restauration des sessions enregistrées au dernier reload.
+  {
+    const toRestore = getConfig().sessionsToRestore ?? [];
+    for (const r of toRestore) {
+      if (r.tmuxName) {
+        try {
+          const list = await invoke<{ name: string }[]>("list_tmux_sessions");
+          if (list.some((t) => t.name === r.tmuxName)) {
+            await attachTmuxSession(r.tmuxName);
+          }
+        } catch { /* tmux indispo → skip */ }
+        continue;
+      }
+      await spawnSession({
+        kind: r.kind,
+        name: r.name,
+        command: r.command ?? undefined,
+        cwd: r.cwd,
+      });
+    }
+  }
+
   pollTmux();
   setInterval(pollTmux, 3000);
   refreshSessionMetadata();
@@ -1239,10 +1303,17 @@ function setupSidebarResizer() {
     const update = await checkForUpdate({ silent: true });
     if (update) showUpdateBanner(update);
   }, 3000);
-  // Persistance d'ordre périodique légère.
-  setInterval(persistOrder, 2000);
-  // Sauver à la fermeture.
+  // Persistance d'ordre périodique légère + capture d'état pour restauration
+  // (~4 s : chaque 2e tick à 2 s). Démarré APRÈS la boucle de restauration pour
+  // ne pas écraser sessionsToRestore pendant la phase d'init.
+  let restoreTick = 0;
+  setInterval(() => {
+    persistOrder();
+    if (restoreTick++ % 2 === 0) void captureSessionsToRestore();
+  }, 2000);
+  // Sauver à la fermeture (best-effort, sans await).
   window.addEventListener("beforeunload", () => {
+    void captureSessionsToRestore();
     persistOrder();
     scheduleSave();
   });

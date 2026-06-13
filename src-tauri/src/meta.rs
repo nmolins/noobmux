@@ -10,6 +10,9 @@ pub struct SessionMetadata {
     pub ports: Vec<u16>,
     /** Nom (comm) du process foreground le plus profond. */
     pub foreground_comm: Option<String>,
+    /** Répertoire de travail résolu du process (suit les `cd` dans le shell).
+     *  Préfère /proc/<pid>/cwd du child le plus profond, sinon le cwd fourni au spawn. */
+    pub resolved_cwd: Option<String>,
 }
 
 /// Renvoie le nom (comm) du process foreground d'un PTY donné.
@@ -40,6 +43,9 @@ pub fn get_session_metadata(cwd: Option<String>, pid: Option<u32>) -> Result<Ses
     // le cwd fourni au spawn si le process n'expose pas /proc/<pid>/cwd
     // (process mort, deepest child non lisible).
     let resolved_cwd = pid.and_then(|p| deepest_child_cwd(p)).or(cwd);
+
+    // Expose le cwd résolu au front-end (utilisé pour la restauration des sessions).
+    out.resolved_cwd = resolved_cwd.clone();
 
     if let Some(d) = resolved_cwd.as_ref() {
         out.git_branch = git_branch(d);
