@@ -399,8 +399,9 @@ function beginRename(li: HTMLLIElement, s: Session) {
     if (!cancel) {
       const v = nameEl.textContent?.trim();
       if (v && v !== oldName) {
-        s.name = v;
-        renameSessionMeta(oldName, v);
+        const unique = uniqueName(v, s.id);
+        s.name = unique;
+        renameSessionMeta(oldName, unique);
       }
     }
     nameEl.textContent = s.name;
@@ -582,8 +583,12 @@ async function pickDirectory(): Promise<string | null> {
   return null;
 }
 
-function uniqueName(base: string): string {
-  const existing = new Set(Array.from(sessions.values()).map((s) => s.name));
+function uniqueName(base: string, excludeId?: string): string {
+  const existing = new Set(
+    Array.from(sessions.values())
+      .filter((s) => s.id !== excludeId)
+      .map((s) => s.name)
+  );
   if (!existing.has(base)) return base;
   let n = 2;
   while (existing.has(`${base}-${n}`)) n++;
