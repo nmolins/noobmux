@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::net::UnixListener;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -17,6 +17,13 @@ pub struct AgentEvent {
     pub event: String,
     pub payload: serde_json::Value,
 }
+
+/// Limite de lecture par connexion.
+/// L'émetteur ouvre une nouvelle connexion par event ; cette limite s'applique
+/// donc à un seul message. Un payload de hook normal est bien en dessous de
+/// 64 KiB. Si un émetteur tiers envoie plus de données sans saut de ligne,
+/// la lecture s'arrête ici — protège contre un DoS mémoire local.
+const MAX_MSG_BYTES: u64 = 64 * 1024; // 64 KiB
 
 pub fn socket_path() -> PathBuf {
     let mut p = dirs::runtime_dir()
@@ -38,6 +45,15 @@ pub fn start_hook_listener(app: AppHandle) {
                 return;
             }
         };
+        // Restreindre le socket au seul propriétaire : empêche un autre process
+        // local d'injecter de faux events si le socket atterrit dans un répertoire
+        // de fallback partagé (cache/temp) plutôt que dans XDG_RUNTIME_DIR (0700).
+        // Le let _ = est intentionnel : un échec ne doit pas empêcher le démarrage.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
         loop {
             let (stream, _) = match listener.accept().await {
                 Ok(s) => s,
@@ -45,7 +61,12 @@ pub fn start_hook_listener(app: AppHandle) {
             };
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
-                let mut reader = BufReader::new(stream);
+                // Contrat de protocole : un message = une ligne JSON compacte
+                // terminée par `\n`, ≤ 64 KiB. Un message plus gros ou
+                // contenant un `\n` interne est tronqué/ignoré silencieusement.
+                // take(MAX_MSG_BYTES) borne la lecture sur toute la connexion ;
+                // acceptable car l'émetteur ouvre une nouvelle connexion par event.
+                let mut reader = BufReader::new(stream.take(MAX_MSG_BYTES));
                 let mut line = String::new();
                 while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
                     if let Ok(evt) = serde_json::from_str::<AgentEvent>(line.trim()) {
