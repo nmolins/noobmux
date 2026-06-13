@@ -36,6 +36,14 @@ export interface SessionRestore {
   tmuxName?: string;
 }
 
+export interface SshProfile {
+  label: string;
+  host: string;
+  user?: string;
+  port?: number;
+  cwd?: string;
+}
+
 export interface NoobmuxConfig {
   sections: SectionConfig[];
   /** Ordered list of session ids inside the sidebar (excluding tmux builtin). */
@@ -44,6 +52,7 @@ export interface NoobmuxConfig {
   sessionMeta: Record<string, SessionMeta>;
   ui: UISettings;
   quickCommands: QuickCommand[];
+  sshProfiles: SshProfile[];
   /** Sessions à restaurer au prochain reload. Mis à jour en arrière-plan toutes les ~4 s. */
   sessionsToRestore: SessionRestore[];
 }
@@ -64,6 +73,7 @@ const DEFAULT_CONFIG: NoobmuxConfig = {
   sessionMeta: {},
   ui: structuredClone(DEFAULT_UI),
   quickCommands: structuredClone(DEFAULT_COMMANDS),
+  sshProfiles: [],
   sessionsToRestore: [],
 };
 
@@ -127,6 +137,11 @@ function mergeWithDefaults(raw: Record<string, unknown>): NoobmuxConfig {
       (c) => c && typeof c.label === "string" && typeof c.command === "string"
     );
   }
+  if (Array.isArray(raw.sshProfiles)) {
+    out.sshProfiles = (raw.sshProfiles as SshProfile[]).filter(
+      (p) => p && typeof p.host === "string" && p.host.length > 0
+    );
+  }
   if (Array.isArray(raw.sessionsToRestore)) {
     out.sessionsToRestore = (raw.sessionsToRestore as SessionRestore[]).filter(
       (r) => r && typeof r.name === "string" && (r.kind === "shell" || r.kind === "agent")
@@ -142,6 +157,11 @@ export function updateUI(patch: Partial<UISettings>) {
 
 export function updateQuickCommands(list: QuickCommand[]) {
   cache.quickCommands = list;
+  scheduleSave();
+}
+
+export function updateSshProfiles(list: SshProfile[]) {
+  cache.sshProfiles = list;
   scheduleSave();
 }
 

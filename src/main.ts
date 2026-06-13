@@ -26,6 +26,7 @@ import {
   updateUI,
   upsertSessionMeta,
   type SessionRestore,
+  type SshProfile,
 } from "./store";
 import {
   detectClaudeStatusFromScreen,
@@ -736,6 +737,15 @@ function escapeHtml(s: string): string {
   );
 }
 
+/** Construit la commande ssh pour un profil. Retourne un string[] (jamais une
+ *  string shell concaténée) pour éviter toute injection. */
+function buildSshCommand(p: SshProfile): string[] {
+  const cmd = ["ssh"];
+  if (p.port) cmd.push("-p", String(p.port));
+  cmd.push(p.user ? `${p.user}@${p.host}` : p.host);
+  return cmd;
+}
+
 // ─── Tmux polling ────────────────────────────────────────────────────────────
 
 // Stockage du cwd de chaque session noobmux (utile pour features futures).
@@ -1127,6 +1137,31 @@ document.getElementById("new-terminal-menu")?.addEventListener("click", (e) => {
             customItems: available.map((t) => ({
               label: t.name,
               onClick: () => attachTmuxSession(t.name),
+            })),
+          });
+        },
+      },
+      {
+        label: "Nouvelle session SSH…",
+        onClick: () => {
+          const profiles = getConfig().sshProfiles ?? [];
+          if (profiles.length === 0) {
+            // Aucun profil : ouvrir les réglages pour en créer un.
+            openSettingsModal({ onChange: applySettingsToSessions });
+            return;
+          }
+          showContextMenu({
+            x: rect.left,
+            y: rect.top - 8,
+            customItems: profiles.map((p) => ({
+              label: p.label || (p.user ? `${p.user}@${p.host}` : p.host),
+              onClick: () =>
+                spawnSession({
+                  kind: "shell",
+                  name: `ssh:${p.host}`,
+                  command: buildSshCommand(p),
+                  cwd: p.cwd ?? null,
+                }),
             })),
           });
         },

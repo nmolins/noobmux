@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { getConfig, updateQuickCommands, updateUI } from "./store";
+import { getConfig, updateQuickCommands, updateSshProfiles, updateUI, type SshProfile } from "./store";
 import { THEMES, applyThemeToRoot, getTheme } from "./themes";
 import type { QuickCommand } from "./commands";
 import { checkForUpdate, showUpdateBanner } from "./updater";
@@ -19,6 +19,7 @@ export function openSettingsModal(hooks: SettingsHooks) {
     fontSize: cfg.ui.fontSize,
     fontFamily: cfg.ui.fontFamily,
     quickCommands: cfg.quickCommands.map((c) => ({ ...c })) as QuickCommand[],
+    sshProfiles: cfg.sshProfiles.map((p) => ({ ...p })) as SshProfile[],
   };
 
   const overlay = el("div", "settings-overlay");
@@ -42,6 +43,7 @@ export function openSettingsModal(hooks: SettingsHooks) {
   const tabDefs = [
     { id: "appearance", label: "Apparence" },
     { id: "commands", label: "Commandes rapides" },
+    { id: "ssh", label: "SSH" },
     { id: "claude", label: "Claude Code" },
     { id: "about", label: "À propos" },
   ];
@@ -80,6 +82,11 @@ export function openSettingsModal(hooks: SettingsHooks) {
   // ── Commands pane ─────────────────────────────────────────────────────
   buildCommandsPane(panes["commands"], working, () => {
     updateQuickCommands(working.quickCommands);
+  });
+
+  // ── SSH pane ──────────────────────────────────────────────────────────
+  buildSshPane(panes["ssh"], working, () => {
+    updateSshProfiles(working.sshProfiles);
   });
 
   // ── Claude Code pane ──────────────────────────────────────────────────
@@ -274,6 +281,116 @@ function buildCommandsPane(
   add.textContent = "+ Ajouter une commande";
   add.addEventListener("click", () => {
     working.quickCommands.push({ label: "Nouvelle commande", command: "" });
+    apply();
+    render();
+  });
+  pane.appendChild(add);
+}
+
+function buildSshPane(
+  pane: HTMLElement,
+  working: { sshProfiles: SshProfile[] },
+  apply: () => void
+) {
+  pane.appendChild(text("h3", "Profils SSH"));
+  const hint = el("div", "settings-hint");
+  hint.textContent =
+    "Aucun secret n'est stocké : l'authentification utilise votre agent SSH / ~/.ssh/config.";
+  pane.appendChild(hint);
+
+  const list = el("div", "cmd-list");
+  pane.appendChild(list);
+
+  const render = () => {
+    list.innerHTML = "";
+    working.sshProfiles.forEach((p, idx) => {
+      const row = el("div", "cmd-row");
+
+      const handle = el("span", "cmd-handle");
+      handle.textContent = "⋮⋮";
+      handle.title = "Glisse pour réordonner";
+      row.appendChild(handle);
+
+      const labelInput = el("input", "cmd-input cmd-label") as HTMLInputElement;
+      labelInput.value = p.label;
+      labelInput.placeholder = "Label";
+      labelInput.addEventListener("input", () => {
+        p.label = labelInput.value;
+        apply();
+      });
+
+      const hostInput = el("input", "cmd-input cmd-cmd") as HTMLInputElement;
+      hostInput.value = p.host;
+      hostInput.placeholder = "hôte (ex. mon-serveur.com)";
+      hostInput.addEventListener("input", () => {
+        p.host = hostInput.value;
+        apply();
+      });
+
+      const userInput = el("input", "cmd-input") as HTMLInputElement;
+      userInput.value = p.user ?? "";
+      userInput.placeholder = "utilisateur (optionnel)";
+      userInput.style.width = "100px";
+      userInput.addEventListener("input", () => {
+        p.user = userInput.value || undefined;
+        apply();
+      });
+
+      const portInput = el("input", "cmd-input") as HTMLInputElement;
+      portInput.type = "number";
+      portInput.value = p.port !== undefined ? String(p.port) : "";
+      portInput.placeholder = "port";
+      portInput.min = "1";
+      portInput.max = "65535";
+      portInput.style.width = "64px";
+      portInput.addEventListener("input", () => {
+        p.port = portInput.value ? Number(portInput.value) : undefined;
+        apply();
+      });
+
+      const up = el("button", "cmd-btn") as HTMLButtonElement;
+      up.textContent = "↑";
+      up.disabled = idx === 0;
+      up.addEventListener("click", () => {
+        if (idx === 0) return;
+        const tmp = working.sshProfiles[idx - 1];
+        working.sshProfiles[idx - 1] = working.sshProfiles[idx];
+        working.sshProfiles[idx] = tmp;
+        apply();
+        render();
+      });
+
+      const down = el("button", "cmd-btn") as HTMLButtonElement;
+      down.textContent = "↓";
+      down.disabled = idx === working.sshProfiles.length - 1;
+      down.addEventListener("click", () => {
+        if (idx >= working.sshProfiles.length - 1) return;
+        const tmp = working.sshProfiles[idx + 1];
+        working.sshProfiles[idx + 1] = working.sshProfiles[idx];
+        working.sshProfiles[idx] = tmp;
+        apply();
+        render();
+      });
+
+      const del = el("button", "cmd-btn cmd-del");
+      del.textContent = "✕";
+      del.title = "Supprimer";
+      del.addEventListener("click", () => {
+        working.sshProfiles.splice(idx, 1);
+        apply();
+        render();
+      });
+
+      row.append(labelInput, hostInput, userInput, portInput, up, down, del);
+      list.appendChild(row);
+    });
+  };
+  render();
+
+  const add = el("button", "cmd-add");
+  add.textContent = "+ Ajouter un profil";
+  add.addEventListener("click", () => {
+    working.sshProfiles.push({ label: "Nouveau profil", host: "" });
     apply();
     render();
   });
