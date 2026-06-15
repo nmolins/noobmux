@@ -354,8 +354,12 @@ function updateSidebarInPlace() {
       badgesEl.innerHTML = badgesHtml(s);
     }
     if (renamingId !== s.id) {
+      // displayName (et non s.name) : sinon une session Claude voit son libellé
+      // « Claude : <nom> » réécrit avec le nom interne (term-1…) à chaque patch,
+      // ce qui le fait osciller avec le renderSidebar de syncClaudeName.
       const name = li.querySelector(".session-name") as HTMLSpanElement;
-      if (name.textContent !== s.name) name.textContent = s.name;
+      const label = displayName(s);
+      if (name.textContent !== label) name.textContent = label;
     }
     // Patch the meta line (git branch + ports). Add/remove the div as needed.
     const newMeta = metaLineHtml(s);
@@ -567,7 +571,9 @@ async function syncClaudeName(noobmuxId: string, claudeSessionId: string | null)
   const cur = sessions.get(noobmuxId);
   if (!cur || cur.claudeName === claudeName) return;
   cur.claudeName = claudeName;
-  renderSidebar();
+  // Patch ciblé : seul le libellé change (le badge AI est déjà posé). Éviter
+  // renderSidebar() qui reconstruit toute la sidebar à chaque resync de nom.
+  updateSidebarInPlace();
   if (cur.id === activeId) updateWindowTitle();
 }
 
@@ -931,7 +937,9 @@ listen<{ id: string; data: string }>("pty:output", (e) => {
     // ensuite avec le nom de session réel (« Claude : <nom> »).
     if (s.claudeName === undefined) {
       s.claudeName = "";
-      renderSidebar();
+      // Patch ciblé : setKind ci-dessus a déjà mis à jour le badge ; ici seul le
+      // libellé bascule sur « Claude ». Pas besoin de reconstruire la sidebar.
+      updateSidebarInPlace();
       if (s.id === activeId) updateWindowTitle();
     }
   }
