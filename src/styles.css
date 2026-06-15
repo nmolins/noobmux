@@ -4,7 +4,13 @@
   --bg-sidebar: #1e2030;
   --fg: #c0caf5;
   --fg-muted: #6b7394;
+  /* Gris intermédiaire : plus lisible que --fg-muted sur fond sombre, pour les
+     infos secondaires qui doivent rester nettes (titres de section, branche, ports). */
+  --fg-dim: #9aa5ce;
   --accent: #7aa2f7;
+  /* Teintes douces pour les détails de session. */
+  --meta-git: #9ece6a;
+  --meta-ports: #2ac3de;
   --accent-dim: #3d59a1;
   --status-idle: #6b7394;
   --status-running: #9ece6a;
@@ -111,11 +117,13 @@ html, body {
   gap: 6px;
   padding: 6px 10px;
   font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.6px;
-  color: var(--fg-muted);
+  color: var(--fg-dim);
   cursor: pointer;
   user-select: none;
+  border-bottom: 1px solid var(--border);
 }
 
 .section-header:hover { color: var(--fg); }
@@ -151,8 +159,9 @@ html, body {
 
 .section-count {
   font-size: 10px;
-  color: var(--fg-muted);
-  background: var(--bg-elev);
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-dim);
   padding: 1px 6px;
   border-radius: 8px;
   min-width: 18px;
@@ -213,12 +222,13 @@ html, body {
   display: flex;
   gap: 8px;
   font-size: 10px;
-  color: var(--fg-muted);
+  color: var(--fg-dim);
   padding-left: 16px;
   line-height: 1.3;
 }
 
 .meta-git {
+  color: var(--meta-git);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -226,6 +236,7 @@ html, body {
 }
 
 .meta-ports {
+  color: var(--meta-ports);
   font-family: ui-monospace, "JetBrains Mono", monospace;
 }
 
