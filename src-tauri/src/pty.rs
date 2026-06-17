@@ -39,6 +39,13 @@ pub struct SpawnArgs {
     pub command: Option<Vec<String>>,
 }
 
+/// Quote un argument pour qu'il soit interprété littéralement par un shell POSIX
+/// (sh/bash/zsh). Single-quotes : tout caractère y est littéral, sauf le single
+/// quote lui-même qu'on ferme/échappe via la séquence classique `'\''`.
+fn shell_quote(arg: &str) -> String {
+    format!("'{}'", arg.replace('\'', "'\\''"))
+}
+
 #[tauri::command]
 pub fn spawn_terminal(
     app: AppHandle,
@@ -60,10 +67,20 @@ pub fn spawn_terminal(
     });
 
     let mut cmd = if let Some(parts) = args.command.filter(|p| !p.is_empty()) {
-        let mut c = CommandBuilder::new(&parts[0]);
-        for arg in &parts[1..] {
-            c.arg(arg);
-        }
+        // Une commande explicite (restauration : `claude`, `ssh …`, `tmux attach …`)
+        // est exécutée À TRAVERS le shell de login interactif de l'utilisateur, et
+        // non directement. Lancée directement, portable-pty ne résout le binaire que
+        // dans le PATH minimal hérité du process noobmux (lanceur desktop), qui ne
+        // contient ni ~/.local/bin, ni nvm, ni bun… → « claude: No viable candidates
+        // found in PATH ». En passant par `$SHELL -lic`, on charge ~/.zshrc et donc
+        // le PATH enrichi de l'utilisateur, exactement comme s'il avait tapé la
+        // commande à la main dans un terminal noobmux ordinaire.
+        let script = parts.iter().map(|a| shell_quote(a)).collect::<Vec<_>>().join(" ");
+        // `exec` : remplace le shell wrapper par la commande, pour que le foreground
+        // observé via /proc et la mort du process restent ceux de la vraie commande.
+        let mut c = CommandBuilder::new(&shell);
+        c.arg("-lic");
+        c.arg(format!("exec {script}"));
         c
     } else {
         CommandBuilder::new(shell)
@@ -238,4 +255,33 @@ pub fn kill_terminal(state: State<'_, PtyManager>, id: String) -> Result<(), Str
         let _ = s.child.wait();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shell_quote;
+
+    #[test]
+    fn quotes_simple_arg() {
+        assert_eq!(shell_quote("claude"), "'claude'");
+    }
+
+    #[test]
+    fn quotes_arg_with_spaces() {
+        assert_eq!(shell_quote("my session"), "'my session'");
+    }
+
+    #[test]
+    fn escapes_embedded_single_quote() {
+        // l'\''s → ferme la quote, insère un ' échappé, rouvre la quote.
+        assert_eq!(shell_quote("l's"), "'l'\\''s'");
+    }
+
+    #[test]
+    fn neutralizes_shell_metacharacters() {
+        // Métacaractères et substitution de commande restent littéraux une fois
+        // quotés — pas d'expansion, pas d'injection.
+        assert_eq!(shell_quote("a; rm -rf /"), "'a; rm -rf /'");
+        assert_eq!(shell_quote("$(whoami)"), "'$(whoami)'");
+    }
 }

@@ -1255,10 +1255,14 @@ async function captureSessionsToRestore() {
     } catch { /* garder le cwd de spawn */ }
     // Une session « agent » lancée en tapant `claude` à la main dans un shell a
     // été détectée visuellement (kind=agent, badge AI) mais sa commande de spawn
-    // est restée nulle. Pour la restaurer fidèlement, on relance `claude`.
+    // est restée nulle. Pour la restaurer fidèlement, on relance `claude` — et si
+    // on connaît son UUID Claude (capté via les hooks, cf. claudeSessionIds), on
+    // reprend la conversation existante avec `--resume <uuid>` plutôt que d'ouvrir
+    // une session vierge. Sans UUID (hooks absents), on retombe sur `claude` nu.
     let command = sessionCommand.get(s.id) ?? null;
     if (s.kind === "agent" && command === null) {
-      command = ["claude"];
+      const claudeId = claudeSessionIds.get(s.id);
+      command = claudeId ? ["claude", "--resume", claudeId] : ["claude"];
     }
     out.push({
       name: s.name,
