@@ -714,6 +714,8 @@ async function closeSession(id: string, opts?: { killTmux?: boolean }) {
   sessionCwd.delete(id);
   sessionCommand.delete(id);
   sessionMetaCache.delete(id);
+  // Retirer le handler clavier d'un éventuel pane mort.
+  detachDeadKeyHandler(id);
   removeSessionMeta(s.name);
   sessions.delete(id);
   closing.delete(id);
@@ -725,6 +727,88 @@ async function closeSession(id: string, opts?: { killTmux?: boolean }) {
   }
   renderSidebar();
   renderEmptyState();
+}
+
+// Relance le process d'une session morte DANS le même pane/term existant (même
+// id, même position, mêmes meta) : on ré-spawn un PTY backend pour cet id, et le
+// term.onData déjà branché recommence à écrire dedans. Le cwd et la command
+// d'origine sont rejoués depuis sessionCwd/sessionCommand (encore présents tant
+// que closeSession n'a pas tourné).
+async function relaunchSession(id: string) {
+  const s = sessions.get(id);
+  if (!s || !exited.has(id)) return;
+  exited.delete(id);
+  detachDeadKeyHandler(id);
+  s.term.reset();
+  s.term.write("\x1b[?25h"); // réafficher le curseur au cas où l'app morte l'a caché.
+  setStatus(id, "idle");
+  s.syncSize();
+  try {
+    await invoke("spawn_terminal", {
+      args: {
+        id,
+        cwd: sessionCwd.get(id) ?? null,
+        shell: null,
+        cols: s.term.cols,
+        rows: s.term.rows,
+        command: sessionCommand.get(id) ?? null,
+      },
+    });
+    s.term.focus();
+  } catch (e) {
+    // Échec de relance : remettre la session en état mort avec son hint.
+    s.term.write(`\r\n\x1b[31m[noobmux] échec de relance : ${e}\x1b[0m\r\n`);
+    markSessionDead(id, null);
+  }
+}
+
+// Handlers clavier des panes morts, indexés par id pour pouvoir les retirer.
+const deadKeyHandlers = new Map<string, (e: KeyboardEvent) => void>();
+
+function detachDeadKeyHandler(id: string) {
+  const s = sessions.get(id);
+  const h = deadKeyHandlers.get(id);
+  if (s && h) s.pane.removeEventListener("keydown", h, true);
+  deadKeyHandlers.delete(id);
+}
+
+// Affiche un pane comme « mort » : libellé [exited], hint d'action, et capture
+// clavier au niveau du pane (le PTY n'existe plus, term.onData ne mène nulle
+// part). Entrée/r → relancer ; q/Échap/Ctrl+D → fermer.
+function markSessionDead(id: string, code: number | null) {
+  const s = sessions.get(id);
+  if (!s) return;
+  const label = code == null ? "[exited]" : `[exited ${code}]`;
+  const color = code ? "31" : "90"; // rouge si code non-nul, gris sinon
+  s.term.write(`\r\n\x1b[${color}m${label}\x1b[0m\r\n`);
+  s.term.write(
+    "\x1b[90m[noobmux] Entrée/r pour relancer · q ou Ctrl+D pour fermer\x1b[0m\r\n"
+  );
+  exited.add(s.id);
+  setStatus(s.id, code ? "error" : "done");
+  lastScreenCheck.delete(s.id);
+  hookPiloted.delete(s.id);
+
+  detachDeadKeyHandler(id); // idempotent : pas de doublon si déjà mort.
+  const handler = (ev: KeyboardEvent) => {
+    if (!exited.has(id)) return;
+    const isRelaunch = ev.key === "Enter" || ev.key === "r";
+    const isClose =
+      ev.key === "q" ||
+      ev.key === "Escape" ||
+      (ev.key === "d" && ev.ctrlKey);
+    if (!isRelaunch && !isClose) return;
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    if (isRelaunch) void relaunchSession(id);
+    else void closeSession(id);
+  };
+  // Capture sur le pane : le keydown vise le <textarea> de xterm (enfant du
+  // pane) ; en phase capture on l'intercepte avant que xterm ne le consomme.
+  s.pane.addEventListener("keydown", handler, true);
+  deadKeyHandlers.set(id, handler);
+  // Focaliser le textarea de xterm pour que les touches arrivent sans clic.
+  s.term.focus();
 }
 
 async function attachTmuxSession(name: string) {
@@ -1015,19 +1099,12 @@ listen<{ id: string; code: number | null }>("pty:exit", (e) => {
   // Fermeture pilotée par l'utilisateur : closeSession fait/a fait le teardown.
   if (closing.has(e.payload.id)) return;
 
-  // Process mort tout seul (exit, crash, fin de commande). Le PTY backend est
-  // déjà retiré côté Rust ; ici on fige la session en « done » plutôt que de la
-  // laisser en « idle » trompeur, et on coupe les polls (plus de PTY à sonder).
-  const code = e.payload.code;
-  const label = code == null ? "[exited]" : `[exited ${code}]`;
-  const color = code ? "31" : "90"; // rouge si code non-nul, gris sinon
-  s.term.write(`\r\n\x1b[${color}m${label}\x1b[0m\r\n`);
-  exited.add(s.id);
-  setStatus(s.id, code ? "error" : "done");
-  // Stopper la détection de statut pour cette session : son foreground n'existe
-  // plus, inutile de la sonder (et get_pty_pid renverrait une erreur).
-  lastScreenCheck.delete(s.id);
-  hookPiloted.delete(s.id);
+  // Process mort tout seul (exit, crash, fin de commande, ssh broken pipe…). Le
+  // PTY backend est déjà retiré côté Rust. On fige la session en « done »/« error »
+  // (plutôt qu'« idle » trompeur), on coupe les polls, et on affiche un pane mort
+  // interactif : le PTY ne reçoit plus rien, donc on capte les touches au niveau
+  // du pane pour proposer relance (Entrée/r) ou fermeture (q/Ctrl+D).
+  markSessionDead(s.id, e.payload.code);
 });
 
 listen<{
