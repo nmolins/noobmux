@@ -51,6 +51,10 @@ const closing = new Set<string>();
 // statut, qui sinon écraseraient l'état figé.
 const exited = new Set<string>();
 let activeId: string | null = null;
+type PinSide = "right" | "bottom";
+let pinnedId: string | null = null;
+let pinSide: PinSide = "right";
+let splitRatio = 0.5; // proportion du pane principal (0.2..0.8)
 let renamingId: string | null = null;
 let renamingSectionId: string | null = null;
 let attachedTmux = new Set<string>(); // noms tmux qu'on a déjà attachés dans noobmux
@@ -282,7 +286,8 @@ function buildSessionItem(s: Session): HTMLLIElement {
 
   li.addEventListener("contextmenu", (e) => {
     e.preventDefault();
-    activate(s.id);
+    // Ne pas changer le pane principal si on clique sur l'épinglé.
+    if (s.id !== pinnedId) activate(s.id);
     const cfg = getConfig();
     const currentSection = cfg.sessionMeta[s.name]?.sectionId ?? "default";
     const tmuxName = (s as any).tmuxName as string | undefined;
@@ -292,6 +297,8 @@ function buildSessionItem(s: Session): HTMLLIElement {
       closeLabel: tmuxName ? "Détacher tmux" : "Fermer",
       onRun: (cmd) => runInSession(s.id, cmd + "\n"),
       onRename: () => beginRenameById(s.id),
+      onPin: s.id === pinnedId ? undefined : sessions.size >= 2 ? (side) => pinSession(s.id, side) : undefined,
+      onUnpin: s.id === pinnedId ? () => unpin() : undefined,
       onClose: () => closeSession(s.id),
       onKillTmux: tmuxName ? () => closeSession(s.id, { killTmux: true }) : undefined,
       onColor: (hex) => {
@@ -484,13 +491,165 @@ function beginSectionRename(secEl: HTMLElement, sectionId: string) {
 
 // ─── Session lifecycle ───────────────────────────────────────────────────────
 
+// Poignée de redimensionnement entre les 2 panes (créée dans applyLayout).
+let splitHandleEl: HTMLDivElement | null = null;
+// Listener mousedown de focus clavier (retiré/recréé par applyLayout).
+const paneMousedownListeners = new Map<string, () => void>();
+
+/** Seule source de vérité pour le rendu des panes (classes active, flex, order).
+ *  Doit être appelée chaque fois que activeId, pinnedId, pinSide ou splitRatio
+ *  change. Ne touchons jamais classList.toggle("active") ailleurs. */
+function applyLayout() {
+  if (pinnedId === null) {
+    // Mode simple : plein écran, un seul pane visible à la fois.
+    terminalsRoot.classList.remove("split", "split-right", "split-bottom");
+
+    // Retirer la poignée si elle existe.
+    if (splitHandleEl) {
+      splitHandleEl.remove();
+      splitHandleEl = null;
+    }
+
+    // Retirer les listeners de focus clavier et la classe pane-focused.
+    for (const [sid, listener] of paneMousedownListeners) {
+      const s = sessions.get(sid);
+      if (s) {
+        s.pane.removeEventListener("mousedown", listener);
+        s.pane.classList.remove("pane-focused");
+      }
+    }
+    paneMousedownListeners.clear();
+
+    for (const s of sessions.values()) {
+      s.pane.classList.toggle("active", s.id === activeId);
+      s.pane.style.order = "";
+      s.pane.style.flexGrow = "";
+    }
+
+    if (activeId) {
+      const s = sessions.get(activeId);
+      if (s) requestAnimationFrame(() => s.syncSize());
+    }
+  } else {
+    // Mode split : 2 panes côte à côte (right) ou empilés (bottom).
+    terminalsRoot.classList.add("split");
+    terminalsRoot.classList.toggle("split-right", pinSide === "right");
+    terminalsRoot.classList.toggle("split-bottom", pinSide === "bottom");
+
+    // Créer la poignée si elle n'existe pas encore.
+    if (!splitHandleEl) {
+      splitHandleEl = document.createElement("div");
+      splitHandleEl.className = "split-handle";
+      terminalsRoot.appendChild(splitHandleEl);
+
+      // Drag pour redimensionner.
+      splitHandleEl.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        const onMove = (mv: MouseEvent) => {
+          const rect = terminalsRoot.getBoundingClientRect();
+          let ratio: number;
+          if (pinSide === "right") {
+            ratio = (mv.clientX - rect.left) / rect.width;
+          } else {
+            ratio = (mv.clientY - rect.top) / rect.height;
+          }
+          splitRatio = Math.max(0.2, Math.min(0.8, ratio));
+          // Applique le ratio directement sur les flexGrow sans reconstruire tout le layout.
+          if (activeId) {
+            const main = sessions.get(activeId);
+            if (main) main.pane.style.flexGrow = String(splitRatio);
+          }
+          const pinned = sessions.get(pinnedId!);
+          if (pinned) pinned.pane.style.flexGrow = String(1 - splitRatio);
+        };
+        const onUp = () => {
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+        };
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+    }
+    splitHandleEl.style.order = "1";
+    splitHandleEl.style.cursor = pinSide === "right" ? "col-resize" : "row-resize";
+
+    // Retirer les anciens listeners de focus clavier avant de les refaire.
+    for (const [sid, listener] of paneMousedownListeners) {
+      const s = sessions.get(sid);
+      if (s) s.pane.removeEventListener("mousedown", listener);
+    }
+    paneMousedownListeners.clear();
+
+    for (const s of sessions.values()) {
+      const isMain = s.id === activeId;
+      const isPinned = s.id === pinnedId;
+      const visible = isMain || isPinned;
+      s.pane.classList.toggle("active", visible);
+      if (isMain) {
+        s.pane.style.order = "0";
+        s.pane.style.flexGrow = String(splitRatio);
+      } else if (isPinned) {
+        s.pane.style.order = "2";
+        s.pane.style.flexGrow = String(1 - splitRatio);
+      } else {
+        s.pane.style.order = "";
+        s.pane.style.flexGrow = "";
+      }
+
+      if (visible) {
+        // Listener de focus clavier : clic sur un pane → focus + bordure accent.
+        const listener = () => {
+          // Retirer la classe de focus des autres panes visibles.
+          for (const other of sessions.values()) {
+            if (other.id === activeId || other.id === pinnedId) {
+              other.pane.classList.toggle("pane-focused", other.id === s.id);
+            }
+          }
+          s.term.focus();
+        };
+        s.pane.addEventListener("mousedown", listener);
+        paneMousedownListeners.set(s.id, listener);
+        // Focus initial : le pane principal a la priorité.
+        s.pane.classList.toggle("pane-focused", isMain);
+      } else {
+        s.pane.classList.remove("pane-focused");
+      }
+    }
+
+    requestAnimationFrame(() => {
+      if (activeId) sessions.get(activeId)?.syncSize();
+      if (pinnedId) sessions.get(pinnedId)?.syncSize();
+    });
+  }
+}
+
+function pinSession(id: string, side: PinSide) {
+  if (!sessions.has(id)) return;
+  pinnedId = id;
+  pinSide = side;
+  splitRatio = 0.5;
+  // Invariant : activeId ≠ pinnedId.
+  if (activeId === id) {
+    const other = Array.from(sessions.keys()).find((k) => k !== id);
+    if (other) activeId = other;
+  }
+  applyLayout();
+  renderSidebar();
+}
+
+function unpin() {
+  pinnedId = null;
+  applyLayout();
+  renderSidebar();
+}
+
 function activate(id: string) {
+  // L'épinglé est fixe : cliquer son onglet est un no-op.
+  if (id === pinnedId) return;
   const s = sessions.get(id);
   if (!s) return;
   activeId = id;
-  for (const other of sessions.values()) {
-    other.pane.classList.toggle("active", other.id === id);
-  }
+  applyLayout();
   renderSidebar();
   updateWindowTitle();
   requestAnimationFrame(() => {
@@ -714,17 +873,32 @@ async function closeSession(id: string, opts?: { killTmux?: boolean }) {
   sessionCwd.delete(id);
   sessionCommand.delete(id);
   sessionMetaCache.delete(id);
+  // Retirer les listeners de focus clavier pour ce pane.
+  const focusListener = paneMousedownListeners.get(id);
+  if (focusListener) {
+    s.pane.removeEventListener("mousedown", focusListener);
+    paneMousedownListeners.delete(id);
+  }
   // Retirer le handler clavier d'un éventuel pane mort.
   detachDeadKeyHandler(id);
   removeSessionMeta(s.name);
   sessions.delete(id);
   closing.delete(id);
   exited.delete(id);
+  // Désépingler automatiquement si l'épinglé est fermé.
+  if (id === pinnedId) pinnedId = null;
+  // Choisir un nouveau principal s'il était actif (ne pas choisir l'épinglé).
   if (activeId === id) {
-    activeId = sessions.keys().next().value ?? null;
-    if (activeId) activate(activeId);
-    else updateWindowTitle();
+    let next = Array.from(sessions.keys()).find((k) => k !== pinnedId) ?? null;
+    if (next === null && pinnedId !== null) {
+      // Il ne reste que l'épinglé : sortir du split, il devient le pane principal.
+      next = pinnedId;
+      pinnedId = null;
+    }
+    activeId = next;
+    updateWindowTitle();
   }
+  applyLayout();
   renderSidebar();
   renderEmptyState();
 }

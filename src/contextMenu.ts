@@ -15,6 +15,8 @@ export interface ContextMenuOpts {
   customItems?: ContextMenuItem[];
   onRun?: (cmd: string) => void;
   onRename?: () => void;
+  onPin?: (side: "right" | "bottom") => void;
+  onUnpin?: () => void;
   onClose?: () => void;
   onKillTmux?: () => void;
   onColor?: (hex: string | null) => void;
@@ -70,6 +72,11 @@ export function showContextMenu(opts: ContextMenuOpts) {
     for (const it of opts.customItems) addItem(it.label, it.onClick, it.shortcut);
   }
   if (opts.onRename) addItem("Renommer", opts.onRename, "F2");
+  if (opts.onPin) {
+    addItem("Épingler à droite", () => opts.onPin!("right"));
+    addItem("Épingler en bas", () => opts.onPin!("bottom"));
+  }
+  if (opts.onUnpin) addItem("Désépingler", opts.onUnpin);
   if (opts.onClose) addItem(opts.closeLabel ?? "Fermer", opts.onClose);
   if (opts.onKillTmux) addItem("Tuer la session tmux", opts.onKillTmux);
 
