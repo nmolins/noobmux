@@ -38,6 +38,11 @@ import { promptText } from "./prompt";
 import { openSettingsModal } from "./settingsModal";
 import { applyThemeToRoot, getTheme } from "./themes";
 import { checkForUpdate, showUpdateBanner } from "./updater";
+import {
+  setupScreenshotsPanel,
+  startScreenshotsPolling,
+  setActiveCwd,
+} from "./screenshots";
 
 const LAST_DIR_KEY = "noobmux:lastDir";
 
@@ -652,6 +657,8 @@ function activate(id: string) {
   applyLayout();
   renderSidebar();
   updateWindowTitle();
+  // Le panneau screenshots suit la session active (dossier scratchpad par projet).
+  setActiveCwd(sessionCwd.get(id) ?? null);
   requestAnimationFrame(() => {
     s.syncSize();
     s.term.focus();
@@ -1572,6 +1579,7 @@ function setupSidebarResizer() {
   const versionEl = document.getElementById("app-version");
   if (versionEl) versionEl.textContent = `v${__APP_VERSION__}`;
   setupSidebarResizer();
+  setupScreenshotsPanel();
   renderSidebar();
   renderEmptyState();
 
@@ -1603,6 +1611,8 @@ function setupSidebarResizer() {
   setInterval(refreshSessionMetadata, 4000);
   pollShellStatus();
   setInterval(pollShellStatus, 1000);
+  // Surveillance des screenshots Claude (badge live + grille si panneau ouvert).
+  startScreenshotsPolling(2000);
   // Auto-check updates au boot (silencieux). 3s de délai pour ne pas bloquer.
   setTimeout(async () => {
     const update = await checkForUpdate({ silent: true });

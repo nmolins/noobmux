@@ -29,6 +29,32 @@
       </aside>
       <div id="sidebar-resizer" title="Glisser pour redimensionner"></div>
       <main id="terminals"></main>
+      <div id="shots-resizer" class="hidden" title="Glisser pour redimensionner"></div>
+      <aside id="shots-panel" class="collapsed">
+        <button id="shots-toggle" class="shots-toggle" title="Screenshots Claude">
+          <span class="shots-toggle-icon">🖼</span>
+          <span id="shots-badge" class="shots-badge hidden">0</span>
+        </button>
+        <div id="shots-body" class="shots-body">
+          <div class="shots-header">
+            <span class="shots-title">Screenshots</span>
+            <span id="shots-count" class="shots-count"></span>
+            <button id="shots-refresh" class="header-icon-btn" title="Rafraîchir">⟳</button>
+          </div>
+          <div id="shots-grid" class="shots-grid"></div>
+        </div>
+      </aside>
+    </div>
+
+    <div id="shots-lightbox" class="shots-lightbox hidden">
+      <button class="lightbox-close" id="lightbox-close" title="Fermer (Échap)">✕</button>
+      <button class="lightbox-nav lightbox-prev" id="lightbox-prev" title="Précédent (←)">‹</button>
+      <img id="lightbox-img" class="lightbox-img" alt="" />
+      <button class="lightbox-nav lightbox-next" id="lightbox-next" title="Suivant (→)">›</button>
+      <div class="lightbox-bar">
+        <span id="lightbox-name" class="lightbox-name"></span>
+        <button id="lightbox-open-system" class="lightbox-open-system">Ouvrir dans le système</button>
+      </div>
     </div>
 
     <div id="context-menu" class="context-menu hidden"></div>

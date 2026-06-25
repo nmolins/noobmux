@@ -909,3 +909,195 @@ html, body {
   flex-direction: column;
   gap: 8px;
 }
+
+/* ─── Panneau screenshots Claude ─────────────────────────────────────────── */
+
+#shots-resizer {
+  width: 4px;
+  cursor: col-resize;
+  background: var(--border);
+  flex: 0 0 4px;
+}
+#shots-resizer.hidden { display: none; }
+
+#shots-panel {
+  display: flex;
+  background: var(--bg-sidebar);
+  border-left: 1px solid var(--border);
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+/* Replié : seul le bouton-onglet vertical reste visible. */
+#shots-panel.collapsed {
+  width: 32px !important;
+}
+#shots-panel.collapsed .shots-body { display: none; }
+
+.shots-toggle {
+  flex: 0 0 32px;
+  width: 32px;
+  background: var(--bg-elev);
+  border: none;
+  border-right: 1px solid var(--border);
+  color: var(--fg-dim);
+  cursor: pointer;
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 10px;
+  font-size: 16px;
+}
+.shots-toggle:hover { color: var(--fg); background: var(--bg); }
+#shots-panel:not(.collapsed) .shots-toggle { border-right: 1px solid var(--border); }
+
+.shots-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+.shots-badge.hidden { display: none; }
+
+.shots-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.shots-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.shots-title { font-size: 12px; font-weight: 600; color: var(--fg); }
+.shots-count {
+  font-size: 11px;
+  color: var(--fg-muted);
+  margin-left: auto;
+}
+.shots-grid {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  align-content: start;
+}
+.shots-empty {
+  color: var(--fg-muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 20px 8px;
+}
+
+.shot-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px;
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+}
+.shot-cell:hover { border-color: var(--accent); }
+.shot-thumb {
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+  background: var(--bg);
+  display: block;
+  min-height: 40px;
+}
+.shot-name {
+  font-size: 10px;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── Lightbox ───────────────────────────────────────────────────────────── */
+
+.shots-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.shots-lightbox.hidden { display: none; }
+.lightbox-img {
+  max-width: 88vw;
+  max-height: 84vh;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+}
+.lightbox-close,
+.lightbox-nav {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border);
+  color: #fff;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.lightbox-close {
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  font-size: 16px;
+}
+.lightbox-nav {
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 64px;
+  font-size: 28px;
+}
+.lightbox-prev { left: 16px; }
+.lightbox-next { right: 16px; }
+.lightbox-close:hover,
+.lightbox-nav:hover { background: var(--accent); }
+.lightbox-bar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 8px 14px;
+  border-radius: 8px;
+}
+.lightbox-name { color: var(--fg); font-size: 12px; }
+.lightbox-open-system {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.lightbox-open-system:hover { background: var(--accent-dim); }

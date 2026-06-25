@@ -22,6 +22,9 @@ export interface UISettings {
   fontSize: number;
   fontFamily: string;
   sidebarWidth: number;
+  /** Panneau des screenshots Claude : déplié ou non, et largeur en px. */
+  shotsPanelOpen: boolean;
+  shotsPanelWidth: number;
 }
 
 /** Snapshot d'une session suffisant pour la recréer au reload. */
@@ -62,6 +65,8 @@ const DEFAULT_UI: UISettings = {
   fontSize: 13,
   fontFamily: '"JetBrains Mono", "Fira Code", ui-monospace, monospace',
   sidebarWidth: 240,
+  shotsPanelOpen: false,
+  shotsPanelWidth: 280,
 };
 
 const DEFAULT_CONFIG: NoobmuxConfig = {

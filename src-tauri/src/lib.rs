@@ -5,6 +5,7 @@ mod download;
 mod hooks;
 mod meta;
 mod pty;
+mod screenshots;
 mod tmux;
 
 use pty::PtyManager;
@@ -75,6 +76,8 @@ pub fn run() {
             tmux::tmux_kill_session,
             claude::list_claude_sessions,
             claude::get_claude_session_name,
+            screenshots::list_screenshots,
+            screenshots::read_screenshot,
             download::download_to_downloads,
             config::load_config,
             config::save_config,
