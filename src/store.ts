@@ -8,6 +8,9 @@ export interface SectionConfig {
   collapsed: boolean;
   /** Special built-in section that lists detached tmux sessions live. */
   builtin?: "tmux";
+  /** Dossier associé : terminaux/Claude ouverts depuis cette section démarrent
+   *  dans ce cwd. undefined = aucun dossier défini. */
+  path?: string;
 }
 
 export interface SessionMeta {
@@ -241,5 +244,14 @@ export function renameSection(id: string, name: string) {
   const sec = cache.sections.find((s) => s.id === id);
   if (!sec || sec.builtin) return;
   sec.name = name;
+  scheduleSave();
+}
+
+/** Définit (ou retire, si path === null) le dossier associé à une section. */
+export function setSectionPath(id: string, path: string | null) {
+  const sec = cache.sections.find((s) => s.id === id);
+  if (!sec || sec.builtin) return;
+  if (path) sec.path = path;
+  else delete sec.path;
   scheduleSave();
 }

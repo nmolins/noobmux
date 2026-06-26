@@ -17,6 +17,7 @@ import {
   loadConfig,
   removeSection,
   renameSection,
+  setSectionPath,
   renameSessionMeta,
   removeSessionMeta,
   scheduleSave,
@@ -119,9 +120,13 @@ function renderSidebar() {
 
     const header = document.createElement("div");
     header.className = "section-header";
+    const folderIcon = sec.path
+      ? `<span class="section-folder" title="${escapeHtml(sec.path)}">📁</span>`
+      : "";
     header.innerHTML = `
       <span class="caret">▾</span>
       <span class="section-name">${escapeHtml(sec.name)}</span>
+      ${folderIcon}
       <span class="section-count"></span>
     `;
     header.addEventListener("click", (e) => {
@@ -137,9 +142,50 @@ function renderSidebar() {
     header.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       if (sec.builtin) return;
+      const customItems: { label: string; onClick: () => void }[] = [];
+      // Ouvrir un terminal/Claude dans le dossier de la section (si défini), et
+      // ranger la nouvelle session directement dans cette section.
+      if (sec.path) {
+        customItems.push(
+          {
+            label: "Ouvrir un terminal ici",
+            onClick: () =>
+              spawnSession({ kind: "shell", cwd: sec.path!, sectionId: sec.id }),
+          },
+          {
+            label: "Ouvrir Claude ici",
+            onClick: () =>
+              spawnSession({
+                kind: "agent",
+                command: ["claude"],
+                cwd: sec.path!,
+                sectionId: sec.id,
+              }),
+          }
+        );
+      }
+      customItems.push({
+        label: sec.path ? "Changer le dossier…" : "Définir le dossier…",
+        onClick: async () => {
+          const dir = await pickDirectory();
+          if (!dir) return;
+          setSectionPath(sec.id, dir);
+          renderSidebar();
+        },
+      });
+      if (sec.path) {
+        customItems.push({
+          label: "Retirer le dossier",
+          onClick: () => {
+            setSectionPath(sec.id, null);
+            renderSidebar();
+          },
+        });
+      }
       showContextMenu({
         x: e.clientX,
         y: e.clientY,
+        customItems,
         onRename: () => beginSectionRename(secEl, sec.id),
         onClose: sec.id === "default" ? undefined : () => {
           removeSection(sec.id);
@@ -787,6 +833,8 @@ async function spawnSession(opts: {
   name?: string;
   command?: string[];
   cwd?: string | null;
+  /** Section dans laquelle ranger la nouvelle session (défaut : "default"). */
+  sectionId?: string;
   meta?: { tmuxName?: string };
 }) {
   terminalsRoot.querySelector(".empty-state")?.remove();
@@ -810,7 +858,10 @@ async function spawnSession(opts: {
   });
   sessions.set(id, s);
 
-  upsertSessionMeta(s.name, { kind: opts.kind });
+  upsertSessionMeta(s.name, {
+    kind: opts.kind,
+    ...(opts.sectionId ? { sectionId: opts.sectionId } : {}),
+  });
 
   // Rendre le pane visible AVANT le spawn : sans la classe `active` le pane est
   // en display:none → offsetWidth 0 → syncSize ne peut pas mesurer la grille.

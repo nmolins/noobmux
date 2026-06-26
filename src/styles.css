@@ -147,6 +147,14 @@ html, body {
   flex: 1;
 }
 
+.section-folder {
+  font-size: 11px;
+  opacity: 0.7;
+  cursor: default;
+  margin-right: 2px;
+}
+.section-header:hover .section-folder { opacity: 1; }
+
 .section-name[contenteditable="plaintext-only"] {
   background: var(--bg-elev);
   color: var(--fg);
