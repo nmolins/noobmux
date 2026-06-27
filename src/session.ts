@@ -172,16 +172,24 @@ export function createSession(opts: {
   // que si la taille a changé → pas de boucle avec le ResizeObserver, pas de
   // spam du PTY. No-op tant que le pane n'est pas layouté (offsetWidth 0),
   // p. ex. créé dans un onglet inactif — l'observer rappellera au bon moment.
-  const syncSize = () => {
-    if (pane.offsetWidth === 0 || pane.offsetHeight === 0) return;
-    fit.fit();
-  };
-
   // Debounce : pendant un drag de sidebar, le pane change de taille en rafale.
   // On laisse xterm reflow en continu (fluide visuellement) mais on attend
   // ~120 ms de stabilité avant de notifier le PTY, pour ne pas le spammer.
   // syncSize est rappelé en trailing edge → l'état final est toujours synchro.
   let debounceTimer: number | undefined;
+
+  const syncSize = () => {
+    if (pane.offsetWidth === 0 || pane.offsetHeight === 0) return;
+    // Un fit synchrone rend tout fit debouncé en attente redondant : on l'annule
+    // pour éviter un 2e recalage ~120 ms plus tard (saccade visible lors d'un
+    // changement de layout discret : épingler/désépingler, changer d'onglet).
+    if (debounceTimer !== undefined) {
+      clearTimeout(debounceTimer);
+      debounceTimer = undefined;
+    }
+    fit.fit();
+  };
+
   const debouncedSync = () => {
     if (debounceTimer !== undefined) clearTimeout(debounceTimer);
     debounceTimer = window.setTimeout(syncSize, 120);

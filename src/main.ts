@@ -578,8 +578,10 @@ function applyLayout() {
     }
 
     if (activeId) {
-      const s = sessions.get(activeId);
-      if (s) requestAnimationFrame(() => s.syncSize());
+      // Fit synchrone immédiat : lire les dimensions force le reflow, donc la
+      // grille xterm est recalée en une seule passe (pas de saccade). Le rAF
+      // différait d'une frame, laissant le ResizeObserver intercaler un 2e fit.
+      sessions.get(activeId)?.syncSize();
     }
   } else {
     // Mode split : 2 panes côte à côte (right) ou empilés (bottom).
@@ -667,10 +669,11 @@ function applyLayout() {
       }
     }
 
-    requestAnimationFrame(() => {
-      if (activeId) sessions.get(activeId)?.syncSize();
-      if (pinnedId) sessions.get(pinnedId)?.syncSize();
-    });
+    // Fit synchrone immédiat des deux panes visibles : recalage en une passe,
+    // sans la saccade qu'introduisait le rAF (différé d'une frame) combiné au
+    // ResizeObserver debouncé qui refaisait un fit ~120 ms plus tard.
+    if (activeId) sessions.get(activeId)?.syncSize();
+    if (pinnedId) sessions.get(pinnedId)?.syncSize();
   }
 }
 
@@ -705,10 +708,10 @@ function activate(id: string) {
   updateWindowTitle();
   // Le panneau screenshots suit la session active (dossier scratchpad par projet).
   setActiveCwd(sessionCwd.get(id) ?? null);
-  requestAnimationFrame(() => {
-    s.syncSize();
-    s.term.focus();
-  });
+  // applyLayout() a déjà fait le fit synchrone du pane actif : ici on ne refait
+  // PAS de syncSize (sinon 2e fit différé d'une frame → saccade en mode split),
+  // on se contente de donner le focus clavier.
+  requestAnimationFrame(() => s.term.focus());
 }
 
 function updateWindowTitle() {

@@ -486,6 +486,10 @@ html, body {
   position: relative;
   inset: auto;
   display: block;
+  /* flex-grow est piloté en JS (splitRatio) ; flex-basis à 0 pour que la
+     répartition dépende uniquement du grow. Aucune transition ici : le recalage
+     doit être instantané, sinon xterm fit en plusieurs passes pendant que le
+     layout flex se stabilise → effet de glissement saccadé. */
   flex: 1 1 0;
   min-width: 0;
   min-height: 0;
