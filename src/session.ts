@@ -1,6 +1,7 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { invoke } from "@tauri-apps/api/core";
 import { getConfig } from "./store";
 import { getTheme } from "./themes";
@@ -54,6 +55,12 @@ export function createSession(opts: {
   const fit = new FitAddon();
   term.loadAddon(fit);
   term.loadAddon(new WebLinksAddon());
+  // OSC 52 : permet à un programme distant (Claude en SSH, par ex.) de pousser
+  // du texte dans le presse-papier système. Sans cet addon, xterm.js ignore la
+  // séquence et copier depuis une session distante est impossible. Le provider
+  // par défaut écrit via navigator.clipboard (autorisé par WebKit2GTK dans le
+  // contexte Tauri).
+  term.loadAddon(new ClipboardAddon());
 
   // Bug WebKit2GTK + AZERTY : la saisie non-ASCII passe par une composition IME
   // (keydown { keyCode:229 } sentinel) que xterm gère mal → caractère doublé.
